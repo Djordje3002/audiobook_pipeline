@@ -173,3 +173,31 @@ npm run build
 ```
 
 After build, Flask serves the React app from `frontend/dist` at `http://127.0.0.1:8080`.
+
+## Text-Only MVP Mode (Current)
+
+Current MVP runs in text-only mode to reduce costs:
+- Whisper transcription (Serbian)
+- GPT-4o literary translation (English)
+- Segment table + JSON shown in the React UI
+
+Voice cloning, synthesis, and ACX export are temporarily disabled in orchestration.
+
+### MVP Run Order
+
+1. Upload source audio in the web app.
+2. Run **5-Minute Translation Preview**.
+3. Review translated segments in the table.
+4. Run **Full Translation** when preview quality is good.
+
+Primary output files:
+- `output/translated/<book>_transcript.json`
+- `output/translated/<book>_glossary.json`
+- `output/translated/<book>_translated.json`
+
+## Re-Enable Voice Stage Later
+
+When budget allows:
+1. Uncomment the `TODO(re-enable-voice-stage)` blocks in `main.py`.
+2. Restore voice-stage env validation by requiring ElevenLabs keys in runtime checks.
+3. Run preview/full again to regenerate synthesized audio and ACX outputs.
