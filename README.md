@@ -143,3 +143,33 @@ audiobook_pipeline/
 - `output_audio/` stores synthesized segments, previews, and final mastered exports.
 - `output/` stores text artifacts, glossary/translation JSON, and ACX reports.
 - `temp_chunks/` is ephemeral processing storage for Whisper chunking.
+
+## Running The Web App (React + Flask)
+
+### Backend (Flask API)
+
+```bash
+cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline
+source venv/bin/activate
+gunicorn app:app --timeout 120 --workers 1 --bind 0.0.0.0:8080
+```
+
+### Frontend (React dev mode)
+
+```bash
+cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline/frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` for development.
+
+### Frontend (build for Flask serving)
+
+```bash
+cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline/frontend
+npm install
+npm run build
+```
+
+After build, Flask serves the React app from `frontend/dist` at `http://127.0.0.1:8080`.

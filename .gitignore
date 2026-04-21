@@ -12,6 +12,7 @@ venv/
 venv311/
 env/
 *.egg-info/
+.npm/
 
 # Project outputs (never commit source audio or generated output)
 input_audio/*
@@ -31,3 +32,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

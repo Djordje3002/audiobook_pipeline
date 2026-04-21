@@ -4,9 +4,15 @@ import os
 from functools import wraps
 
 from flask import Response, request
+from dotenv import load_dotenv
 
-USERNAME = os.getenv("APP_USERNAME", "admin")
-PASSWORD = os.getenv("APP_PASSWORD", "changeme")
+load_dotenv()
+
+
+def _expected_credentials() -> tuple[str, str]:
+    username = os.getenv("APP_USERNAME", "admin")
+    password = os.getenv("APP_PASSWORD", "changeme")
+    return username, password
 
 def require_auth(fn):
     """Protect a Flask route with HTTP Basic Authentication."""
@@ -14,11 +20,12 @@ def require_auth(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         auth = request.authorization
+        username, password = _expected_credentials()
 
         if not auth:
             return _unauthorized()
 
-        if auth.username != USERNAME or auth.password != PASSWORD:
+        if auth.username != username or auth.password != password:
             return _unauthorized()
 
         return fn(*args, **kwargs)
