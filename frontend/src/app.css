@@ -65,6 +65,131 @@ body {
   gap: 1rem;
 }
 
+.warning-banner {
+  margin-top: 0.9rem;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: #fff3d4;
+  border: 1px solid #e6cf8b;
+  color: #6d5608;
+  font-weight: 600;
+}
+
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.cost-card {
+  border: 1px solid #c8d8d4;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #f6fbf9;
+}
+
+.cost-card h3 {
+  margin-top: 0;
+}
+
+.cost-card p {
+  margin: 0.4rem 0;
+  font-size: 0.92rem;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.55rem;
+  color: #214648;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.progress-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid #bfd2cd;
+  background: #eff5f3;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0d8f7d, #13b79f);
+  width: 0%;
+  transition: width 0.35s ease;
+}
+
+.progress-track.active .progress-fill {
+  background-image: linear-gradient(
+    135deg,
+    #0d8f7d 0%,
+    #0d8f7d 33%,
+    #27c8b0 33%,
+    #27c8b0 66%,
+    #0d8f7d 66%,
+    #0d8f7d 100%
+  );
+  background-size: 34px 12px;
+  animation: progress-stripes 1.2s linear infinite;
+}
+
+.progress-meta {
+  margin-top: 0.35rem;
+  color: #4f6768;
+  font-size: 0.86rem;
+}
+
+.phase-list {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.phase-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  color: #677f80;
+}
+
+.phase-item.done {
+  color: #1f6e62;
+  font-weight: 600;
+}
+
+.phase-item.active {
+  color: #0f3a3d;
+  font-weight: 700;
+}
+
+.phase-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 2px solid #bfd2cd;
+  background: #ffffff;
+  flex: 0 0 auto;
+}
+
+.phase-item.done .phase-dot {
+  border-color: #1f977f;
+  background: #1f977f;
+}
+
+.phase-item.active .phase-dot {
+  border-color: #0d8f7d;
+  background: #0d8f7d;
+  box-shadow: 0 0 0 4px rgb(14 143 125 / 17%);
+}
+
 .panel {
   background: var(--card);
   border: 1px solid var(--line);
@@ -116,6 +241,26 @@ input[type="text"],
   margin-top: 0.2rem;
 }
 
+.link-button {
+  margin-top: 0.75rem;
+  border: 0;
+  background: transparent;
+  color: #0b6f65;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.advanced-box {
+  margin-top: 0.8rem;
+  padding: 0.7rem;
+  border: 1px dashed #bed0cb;
+  border-radius: 10px;
+  background: #f6fbf9;
+}
+
 .action-button {
   border: 0;
   border-radius: 11px;
@@ -153,16 +298,58 @@ input[type="text"],
   font-weight: 700;
 }
 
-.preview-box {
-  margin-top: 0.9rem;
-  padding: 0.8rem;
+.error-card {
+  margin-top: 0.85rem;
+  border: 1px solid #e5b9b8;
+  background: #fff5f5;
+  color: #8f1f1b;
   border-radius: 12px;
-  background: #edf8f5;
-  border: 1px solid #b8d8cf;
+  padding: 0.75rem;
 }
 
-.preview-box audio {
+.error-card p {
+  margin: 0.45rem 0 0;
+  font-size: 0.92rem;
+}
+
+.error-fix {
+  color: #6c312f;
+  font-weight: 600;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid #c8d8d4;
+  border-radius: 12px;
+}
+
+.segment-table {
   width: 100%;
+  border-collapse: collapse;
+  min-width: 920px;
+}
+
+.segment-table th,
+.segment-table td {
+  border-bottom: 1px solid #d8e4e1;
+  padding: 0.55rem;
+  vertical-align: top;
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.segment-table th {
+  position: sticky;
+  top: 0;
+  background: #eef6f4;
+  z-index: 1;
+}
+
+.segment-meta {
+  margin-top: 0.3rem;
+  color: #476467;
+  font-size: 0.8rem;
 }
 
 code {
@@ -183,5 +370,23 @@ pre {
 @media (max-width: 880px) {
   .layout-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cost-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@keyframes progress-stripes {
+  from {
+    background-position: 34px 0;
+  }
+  to {
+    background-position: 0 0;
   }
 }
