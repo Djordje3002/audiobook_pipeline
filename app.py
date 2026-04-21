@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 from auth import require_auth
 from config import INPUT_AUDIO_DIR, OUTPUT_TRANSLATED_DIR
 from main import run_full_book, run_preview
+from modules.reader import synthesize_translation_readback
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -152,6 +153,49 @@ def save_translated():
             "translated_path": str(output_path.relative_to(BASE_DIR)).replace("\\", "/"),
             "segments_saved": len(segments),
             "saved_at": int(time.time()),
+        }
+    )
+
+
+@app.post("/api/read")
+@require_auth
+def read_translation():
+    payload = request.get_json(silent=True) or {}
+    translated_path = payload.get("translated_path")
+    book_title = payload.get("book_title")
+    speech_rate = payload.get("speech_rate")
+
+    try:
+        resolved_translated_path = _resolve_translated_artifact_path(translated_path)
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+
+    if not resolved_translated_path.exists():
+        return jsonify({"status": "error", "error": "Translated artifact does not exist on disk."}), 404
+
+    normalized_rate = None
+    if speech_rate is not None:
+        try:
+            normalized_rate = int(speech_rate)
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "error": "speech_rate must be an integer."}), 400
+
+    try:
+        readback_path = synthesize_translation_readback(
+            translated_path=resolved_translated_path,
+            explicit_book_title=str(book_title).strip() if book_title else None,
+            speech_rate=normalized_rate,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+    resolved_readback_path = readback_path if readback_path.is_absolute() else (BASE_DIR / readback_path).resolve()
+
+    return jsonify(
+        {
+            "status": "success",
+            "readback_path": str(resolved_readback_path.relative_to(BASE_DIR.resolve())).replace("\\", "/"),
+            "created_at": int(time.time()),
         }
     )
 

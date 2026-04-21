@@ -223,6 +223,9 @@ export default function App() {
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
   const [saveStateMessage, setSaveStateMessage] = useState('');
   const [savingEdits, setSavingEdits] = useState(false);
+  const [readbackPath, setReadbackPath] = useState('');
+  const [readbackStatus, setReadbackStatus] = useState('');
+  const [creatingReadback, setCreatingReadback] = useState(false);
   const [wordEdit, setWordEdit] = useState({
     open: false,
     segmentIndex: null,
@@ -246,6 +249,10 @@ export default function App() {
     if (!translatedPath) return '';
     return `/media/${encodeURI(translatedPath)}`;
   }, [translatedPath]);
+  const readbackMediaUrl = useMemo(() => {
+    if (!readbackPath) return '';
+    return `/media/${encodeURI(readbackPath)}`;
+  }, [readbackPath]);
 
   const currentPhases = OPERATION_CONFIG[operation]?.phases || OPERATION_CONFIG.idle.phases;
   const errGuide = error ? errorHelp(error) : null;
@@ -312,12 +319,16 @@ export default function App() {
         setTranslatedSegments(data);
         setHasUnsavedEdits(false);
         setSaveStateMessage('');
+        setReadbackPath('');
+        setReadbackStatus('');
         setWordEdit((prev) => ({ ...prev, open: false }));
         setTranslationArtifactError('');
       } catch (artifactError) {
         setTranslatedSegments([]);
         setHasUnsavedEdits(false);
         setSaveStateMessage('');
+        setReadbackPath('');
+        setReadbackStatus('');
         setTranslationArtifactError(artifactError.message);
       }
     }
@@ -390,22 +401,40 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  function downloadTranslatedText() {
+  function downloadSerbianText() {
     if (!translatedSegments.length) return;
-    const combined = translatedSegments
+    const serbianOnly = translatedSegments
       .map(
         (segment) =>
           `#${segment.segment_index} [${formatSeconds(segment.start)} - ${formatSeconds(segment.end)}]\n` +
-          `SR: ${segment.original_text || ''}\n` +
-          `EN: ${segment.translated_text || ''}`,
+          `${segment.original_text || ''}`,
       )
       .join('\n\n');
 
-    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([serbianOnly], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${bookTitle || 'translation'}_translated.txt`;
+    link.download = `${bookTitle || 'translation'}_sr.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadEnglishText() {
+    if (!translatedSegments.length) return;
+    const englishOnly = translatedSegments
+      .map(
+        (segment) =>
+          `#${segment.segment_index} [${formatSeconds(segment.start)} - ${formatSeconds(segment.end)}]\n` +
+          `${segment.translated_text || ''}`,
+      )
+      .join('\n\n');
+
+    const blob = new Blob([englishOnly], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${bookTitle || 'translation'}_en.txt`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -517,6 +546,44 @@ export default function App() {
     }
   }
 
+  async function createReadbackAudio() {
+    if (!authHeader) {
+      setError('Enter API credentials first.');
+      return;
+    }
+    if (!translatedPath) {
+      setError('No translated artifact path available.');
+      return;
+    }
+
+    setCreatingReadback(true);
+    setReadbackStatus('Generating reader audio...');
+    setError('');
+
+    try {
+      const response = await fetch('/api/read', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({
+          translated_path: translatedPath,
+          book_title: bookTitle.trim() || undefined,
+        }),
+      });
+      const data = await parseJsonOrError(response);
+      setReadbackPath(data.readback_path || '');
+      setReadbackStatus('Reader audio is ready.');
+    } catch (readerError) {
+      setReadbackPath('');
+      setReadbackStatus('');
+      setError(readerError.message);
+    } finally {
+      setCreatingReadback(false);
+    }
+  }
+
   function renderEditableText(segment, field) {
     const rawText = String(segment[field] || '');
     if (!rawText) return '-';
@@ -607,6 +674,8 @@ export default function App() {
     setTranslationArtifactError('');
     setHasUnsavedEdits(false);
     setSaveStateMessage('');
+    setReadbackPath('');
+    setReadbackStatus('');
     setWordEdit((prev) => ({ ...prev, open: false }));
 
     startOperation(
@@ -815,8 +884,10 @@ export default function App() {
               <p>{translationArtifactError}</p>
             </div>
           )}
+        </section>
 
-          <h3>Translated Segments</h3>
+        <section className="panel wide">
+          <h2>4) Translated Segments</h2>
           {translatedSegments.length === 0 ? (
             <p className="status">No translated segments loaded yet.</p>
           ) : (
@@ -913,10 +984,31 @@ export default function App() {
                 <button className="tiny-button" type="button" onClick={downloadTranslatedJson}>
                   Download JSON
                 </button>
-                <button className="tiny-button" type="button" onClick={downloadTranslatedText}>
-                  Download TXT
+                <button className="tiny-button" type="button" onClick={downloadSerbianText}>
+                  Download SR TXT
+                </button>
+                <button className="tiny-button" type="button" onClick={downloadEnglishText}>
+                  Download EN TXT
                 </button>
               </div>
+
+              <div className="reader-tools">
+                <button
+                  className="tiny-button"
+                  type="button"
+                  onClick={createReadbackAudio}
+                  disabled={creatingReadback || !translatedPath}
+                >
+                  {creatingReadback ? 'Generating Reader Audio...' : 'Read Whole Translation'}
+                </button>
+                {readbackStatus ? <span className="reader-status">{readbackStatus}</span> : null}
+              </div>
+
+              {readbackMediaUrl ? (
+                <div className="reader-player">
+                  <audio controls src={readbackMediaUrl} preload="metadata" />
+                </div>
+              ) : null}
 
               <div className="table-wrap">
                 <table className="segment-table">

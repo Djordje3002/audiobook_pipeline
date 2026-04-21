@@ -425,7 +425,7 @@ input[type="text"],
 
 .segment-tools {
   display: grid;
-  grid-template-columns: 2fr 1fr auto auto auto auto;
+  grid-template-columns: 2fr 1fr auto auto auto auto auto;
   gap: 0.5rem;
   margin-bottom: 0.65rem;
 }
@@ -436,6 +436,27 @@ input[type="text"],
   border-radius: 10px;
   padding: 0.45rem 0.55rem;
   font: inherit;
+}
+
+.reader-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.65rem;
+}
+
+.reader-status {
+  color: #2f6360;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.reader-player {
+  margin-bottom: 0.7rem;
+}
+
+.reader-player audio {
+  width: min(100%, 520px);
 }
 
 .tiny-button {
@@ -510,6 +531,11 @@ pre {
 
   .segment-tools {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .reader-tools {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .edit-toolbar {
