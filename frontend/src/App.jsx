@@ -41,6 +41,9 @@ const OPERATION_CONFIG = {
   },
 };
 
+const WORD_TOKEN_RE = /^[A-Za-z0-9ČĆŽŠĐčćžšđÀ-ÖØ-öø-ÿĀ-ž]+$/;
+const WORD_SPLIT_RE = /([A-Za-z0-9ČĆŽŠĐčćžšđÀ-ÖØ-öø-ÿĀ-ž]+)/g;
+
 async function parseJsonOrError(response) {
   const text = await response.text();
   let data = null;
@@ -168,6 +171,30 @@ function progressState(operation, elapsedSec) {
   };
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceWholeWord(text, sourceWord, targetWord) {
+  const source = String(sourceWord || '').trim();
+  const target = String(targetWord || '').trim();
+  const input = String(text || '');
+  if (!source || !target || source === target) {
+    return { text: input, replacements: 0 };
+  }
+
+  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapeRegExp(source)})(?=$|[^\\p{L}\\p{N}_])`, 'gu');
+  let replacements = 0;
+  const output = input.replace(pattern, (match, prefix, word) => {
+    if (word !== source) {
+      return match;
+    }
+    replacements += 1;
+    return `${prefix}${target}`;
+  });
+  return { text: output, replacements };
+}
+
 export default function App() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -189,6 +216,21 @@ export default function App() {
   const [error, setError] = useState('');
   const [translatedSegments, setTranslatedSegments] = useState([]);
   const [translationArtifactError, setTranslationArtifactError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [jumpSegmentInput, setJumpSegmentInput] = useState('');
+  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
+  const [saveStateMessage, setSaveStateMessage] = useState('');
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [wordEdit, setWordEdit] = useState({
+    open: false,
+    segmentIndex: null,
+    field: 'translated_text',
+    selectedWord: '',
+    replacement: '',
+    scope: 'segment',
+  });
 
   const authHeader = useMemo(() => {
     if (!username || !password) return '';
@@ -209,6 +251,31 @@ export default function App() {
   const errGuide = error ? errorHelp(error) : null;
   const preRunEstimate = useMemo(() => estimatePreRunCost(selectedDurationSec), [selectedDurationSec]);
   const backendEstimate = result?.cost_estimate || null;
+  const filteredSegments = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return translatedSegments;
+    return translatedSegments.filter((segment) => {
+      const idxText = String(segment.segment_index ?? '');
+      const original = String(segment.original_text ?? '').toLowerCase();
+      const translated = String(segment.translated_text ?? '').toLowerCase();
+      return idxText.includes(query) || original.includes(query) || translated.includes(query);
+    });
+  }, [translatedSegments, searchQuery]);
+  const totalPages = Math.max(1, Math.ceil(filteredSegments.length / pageSize));
+  const pagedSegments = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages);
+    const start = (safePage - 1) * pageSize;
+    return filteredSegments.slice(start, start + pageSize);
+  }, [filteredSegments, currentPage, pageSize, totalPages]);
+  const warningSegmentsCount = useMemo(
+    () =>
+      translatedSegments.filter(
+        (segment) =>
+          Array.isArray(segment.validation_warnings) &&
+          segment.validation_warnings.length > 0,
+      ).length,
+    [translatedSegments],
+  );
 
   useEffect(() => {
     if (!loading || operation === 'idle') return undefined;
@@ -243,15 +310,30 @@ export default function App() {
           throw new Error('Translated artifact is not a segment array.');
         }
         setTranslatedSegments(data);
+        setHasUnsavedEdits(false);
+        setSaveStateMessage('');
+        setWordEdit((prev) => ({ ...prev, open: false }));
         setTranslationArtifactError('');
       } catch (artifactError) {
         setTranslatedSegments([]);
+        setHasUnsavedEdits(false);
+        setSaveStateMessage('');
         setTranslationArtifactError(artifactError.message);
       }
     }
 
     loadTranslatedArtifact();
   }, [translatedMediaUrl, authHeader]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, pageSize, translatedSegments.length]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   function handleFileSelection(file) {
     setSelectedFile(file);
@@ -280,6 +362,185 @@ export default function App() {
     setProgressPct(4);
     setActivePhaseIndex(0);
     setStatusText(text);
+  }
+
+  function jumpToSegment() {
+    const target = Number(jumpSegmentInput);
+    if (!Number.isFinite(target)) return;
+    const idx = filteredSegments.findIndex((segment) => Number(segment.segment_index) === target);
+    if (idx < 0) {
+      setError(`Segment #${jumpSegmentInput} not found in current filter.`);
+      return;
+    }
+    const nextPage = Math.floor(idx / pageSize) + 1;
+    setCurrentPage(nextPage);
+    setError('');
+  }
+
+  function downloadTranslatedJson() {
+    if (!translatedSegments.length) return;
+    const blob = new Blob([JSON.stringify(translatedSegments, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${bookTitle || 'translation'}_translated.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadTranslatedText() {
+    if (!translatedSegments.length) return;
+    const combined = translatedSegments
+      .map(
+        (segment) =>
+          `#${segment.segment_index} [${formatSeconds(segment.start)} - ${formatSeconds(segment.end)}]\n` +
+          `SR: ${segment.original_text || ''}\n` +
+          `EN: ${segment.translated_text || ''}`,
+      )
+      .join('\n\n');
+
+    const blob = new Blob([combined], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${bookTitle || 'translation'}_translated.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openWordEditor(segmentIndex, field, clickedWord) {
+    setWordEdit({
+      open: true,
+      segmentIndex,
+      field,
+      selectedWord: clickedWord,
+      replacement: clickedWord,
+      scope: 'segment',
+    });
+    setSaveStateMessage('');
+    setError('');
+  }
+
+  function closeWordEditor() {
+    setWordEdit((prev) => ({ ...prev, open: false }));
+  }
+
+  function applyWordEdit() {
+    if (!wordEdit.open) return;
+
+    const sourceWord = String(wordEdit.selectedWord || '').trim();
+    const replacement = String(wordEdit.replacement || '').trim();
+    if (!sourceWord) {
+      setError('No source word selected.');
+      return;
+    }
+    if (!replacement) {
+      setError('Replacement word cannot be empty.');
+      return;
+    }
+
+    let totalReplacements = 0;
+    const updatedSegments = translatedSegments.map((segment) => {
+      const isTargetSegment = Number(segment.segment_index) === Number(wordEdit.segmentIndex);
+      const shouldEdit = wordEdit.scope === 'all' || isTargetSegment;
+      if (!shouldEdit) return segment;
+
+      const currentText = String(segment[wordEdit.field] || '');
+      const replacementResult = replaceWholeWord(currentText, sourceWord, replacement);
+      totalReplacements += replacementResult.replacements;
+      if (replacementResult.replacements === 0) return segment;
+      return { ...segment, [wordEdit.field]: replacementResult.text };
+    });
+
+    if (totalReplacements === 0) {
+      setError(`No exact matches found for "${sourceWord}" in the selected scope.`);
+      return;
+    }
+
+    setTranslatedSegments(updatedSegments);
+    setHasUnsavedEdits(true);
+    setSaveStateMessage(
+      `Applied ${totalReplacements} replacement${totalReplacements === 1 ? '' : 's'} for "${sourceWord}".`,
+    );
+    setError('');
+    closeWordEditor();
+  }
+
+  async function saveEditedSegments() {
+    if (!authHeader) {
+      setError('Enter API credentials first.');
+      return;
+    }
+    if (!translatedPath) {
+      setError('No translated artifact path available.');
+      return;
+    }
+    if (!translatedSegments.length) {
+      setError('No translated segments loaded.');
+      return;
+    }
+
+    setSavingEdits(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/save-translated', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({
+          translated_path: translatedPath,
+          segments: translatedSegments,
+        }),
+      });
+      const data = await parseJsonOrError(response);
+      setHasUnsavedEdits(false);
+      setSaveStateMessage(`Edits saved (${data.segments_saved} segments).`);
+      setResult((prev) => {
+        if (!prev || typeof prev !== 'object') return prev;
+        return {
+          ...prev,
+          translated_path: data.translated_path || translatedPath,
+          edited_segments_saved: data.segments_saved,
+          translated_saved_at: data.saved_at,
+        };
+      });
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaveStateMessage('');
+    } finally {
+      setSavingEdits(false);
+    }
+  }
+
+  function renderEditableText(segment, field) {
+    const rawText = String(segment[field] || '');
+    if (!rawText) return '-';
+    const parts = rawText.split(WORD_SPLIT_RE);
+    return (
+      <div className="editable-text" title="Click a word to edit">
+        {parts.map((part, idx) => {
+          if (!part) return null;
+          if (WORD_TOKEN_RE.test(part)) {
+            return (
+              <button
+                key={`${segment.segment_index}-${field}-${idx}`}
+                type="button"
+                className="word-token"
+                onClick={() => openWordEditor(segment.segment_index, field, part)}
+              >
+                {part}
+              </button>
+            );
+          }
+          return <span key={`${segment.segment_index}-${field}-${idx}`}>{part}</span>;
+        })}
+      </div>
+    );
   }
 
   function finishOperation(successText) {
@@ -344,6 +605,9 @@ export default function App() {
     setResult(null);
     setTranslatedSegments([]);
     setTranslationArtifactError('');
+    setHasUnsavedEdits(false);
+    setSaveStateMessage('');
+    setWordEdit((prev) => ({ ...prev, open: false }));
 
     startOperation(
       mode,
@@ -556,39 +820,160 @@ export default function App() {
           {translatedSegments.length === 0 ? (
             <p className="status">No translated segments loaded yet.</p>
           ) : (
-            <div className="table-wrap">
-              <table className="segment-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Time</th>
-                    <th>Original (SR)</th>
-                    <th>Translated (EN)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {translatedSegments.map((segment) => (
-                    <tr key={segment.segment_index}>
-                      <td>{segment.segment_index}</td>
-                      <td>{formatSeconds(segment.start)} - {formatSeconds(segment.end)}</td>
-                      <td>{segment.original_text || '-'}</td>
-                      <td>
-                        <div>{segment.translated_text || '-'}</div>
-                        <div className="segment-meta">
-                          <strong>Status:</strong> {segment.translation_status || '-'}
-                        </div>
-                        <div className="segment-meta">
-                          <strong>Warnings:</strong>{' '}
-                          {Array.isArray(segment.validation_warnings) && segment.validation_warnings.length
-                            ? segment.validation_warnings.join('; ')
-                            : '-'}
-                        </div>
-                      </td>
+            <>
+              <div className="segment-summary">
+                <span>Total: <strong>{translatedSegments.length}</strong></span>
+                <span>Warnings: <strong>{warningSegmentsCount}</strong></span>
+                <span>Filtered: <strong>{filteredSegments.length}</strong></span>
+                <span>Page: <strong>{currentPage}/{totalPages}</strong></span>
+              </div>
+
+              <div className="edit-toolbar">
+                <span>Click any Serbian or English word in the table to edit it.</span>
+                <span className={hasUnsavedEdits ? 'dirty' : 'clean'}>
+                  {hasUnsavedEdits ? 'Unsaved changes' : 'All changes saved'}
+                </span>
+                <button
+                  className="tiny-button save-button"
+                  type="button"
+                  onClick={saveEditedSegments}
+                  disabled={savingEdits || !translatedSegments.length || !hasUnsavedEdits}
+                >
+                  {savingEdits ? 'Saving...' : 'Save Edits to JSON'}
+                </button>
+              </div>
+
+              {saveStateMessage ? <p className="save-message">{saveStateMessage}</p> : null}
+
+              {wordEdit.open && (
+                <div className="word-edit-card">
+                  <h4>Word Edit</h4>
+                  <p>
+                    Selected word: <strong>{wordEdit.selectedWord}</strong>
+                  </p>
+                  <p>
+                    Segment: <strong>#{wordEdit.segmentIndex}</strong> | Field:{' '}
+                    <strong>{wordEdit.field === 'original_text' ? 'Original (SR)' : 'Translated (EN)'}</strong>
+                  </p>
+                  <label>
+                    Replace with
+                    <input
+                      type="text"
+                      value={wordEdit.replacement}
+                      onChange={(event) =>
+                        setWordEdit((prev) => ({ ...prev, replacement: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Apply scope
+                    <select
+                      value={wordEdit.scope}
+                      onChange={(event) =>
+                        setWordEdit((prev) => ({ ...prev, scope: event.target.value }))
+                      }
+                    >
+                      <option value="segment">Current segment only</option>
+                      <option value="all">All loaded segments</option>
+                    </select>
+                  </label>
+                  <div className="button-row">
+                    <button className="tiny-button" type="button" onClick={applyWordEdit}>
+                      Apply Replacement
+                    </button>
+                    <button className="tiny-button" type="button" onClick={closeWordEditor}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="segment-tools">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  placeholder="Search original or translated text..."
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={jumpSegmentInput}
+                  placeholder="Jump to segment #"
+                  onChange={(event) => setJumpSegmentInput(event.target.value)}
+                />
+                <button className="tiny-button" type="button" onClick={jumpToSegment}>
+                  Jump
+                </button>
+                <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+                  <option value={25}>25 / page</option>
+                  <option value={50}>50 / page</option>
+                  <option value={100}>100 / page</option>
+                </select>
+                <button className="tiny-button" type="button" onClick={downloadTranslatedJson}>
+                  Download JSON
+                </button>
+                <button className="tiny-button" type="button" onClick={downloadTranslatedText}>
+                  Download TXT
+                </button>
+              </div>
+
+              <div className="table-wrap">
+                <table className="segment-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Time</th>
+                      <th>Original (SR)</th>
+                      <th>Translated (EN)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pagedSegments.map((segment) => (
+                      <tr key={segment.segment_index}>
+                        <td>{segment.segment_index}</td>
+                        <td>{formatSeconds(segment.start)} - {formatSeconds(segment.end)}</td>
+                        <td>{renderEditableText(segment, 'original_text')}</td>
+                        <td>
+                          <div>{renderEditableText(segment, 'translated_text')}</div>
+                          <div className="segment-meta">
+                            <strong>Status:</strong> {segment.translation_status || '-'}
+                          </div>
+                          <div className="segment-meta">
+                            <strong>Warnings:</strong>{' '}
+                            {Array.isArray(segment.validation_warnings) && segment.validation_warnings.length
+                              ? segment.validation_warnings.join('; ')
+                              : '-'}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="pager">
+                <button
+                  className="tiny-button"
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  className="tiny-button"
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
 
           <h3>Raw Translated JSON</h3>

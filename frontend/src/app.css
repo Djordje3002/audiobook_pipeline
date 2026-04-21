@@ -352,6 +352,138 @@ input[type="text"],
   font-size: 0.8rem;
 }
 
+.segment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.2rem;
+  margin-bottom: 0.65rem;
+  color: #35595c;
+  font-size: 0.9rem;
+}
+
+.edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  color: #2f5559;
+  font-size: 0.88rem;
+}
+
+.edit-toolbar .dirty {
+  color: #b44514;
+  font-weight: 700;
+}
+
+.edit-toolbar .clean {
+  color: #1d7559;
+  font-weight: 600;
+}
+
+.save-button {
+  margin-left: auto;
+}
+
+.save-message {
+  margin: 0 0 0.7rem;
+  color: #1a6f5f;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.word-edit-card {
+  margin-bottom: 0.75rem;
+  border: 1px solid #b9cec8;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #f4fbf8;
+}
+
+.word-edit-card h4 {
+  margin: 0 0 0.45rem;
+}
+
+.word-edit-card p {
+  margin: 0.2rem 0;
+  color: #395e61;
+  font-size: 0.9rem;
+}
+
+.word-edit-card label {
+  margin: 0.55rem 0 0;
+}
+
+.word-edit-card input,
+.word-edit-card select {
+  border: 1px solid #bed0cb;
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  background: #fff;
+}
+
+.segment-tools {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto auto auto auto;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.segment-tools input,
+.segment-tools select {
+  border: 1px solid #bed0cb;
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+
+.tiny-button {
+  border: 1px solid #8abbb1;
+  background: #eaf7f4;
+  color: #0c5452;
+  border-radius: 9px;
+  padding: 0.42rem 0.62rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tiny-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.editable-text {
+  line-height: 1.6;
+}
+
+.word-token {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.06rem;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 140ms ease;
+}
+
+.word-token:hover {
+  background: #e2f4ef;
+}
+
+.pager {
+  margin-top: 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  color: #325558;
+  font-size: 0.9rem;
+}
+
 code {
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
 }
@@ -374,6 +506,19 @@ pre {
 
   .cost-grid {
     grid-template-columns: 1fr;
+  }
+
+  .segment-tools {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .edit-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .save-button {
+    margin-left: 0;
   }
 
   .progress-head {
