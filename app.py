@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -9,12 +10,13 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from auth import require_auth
-from config import INPUT_AUDIO_DIR
+from config import INPUT_AUDIO_DIR, OUTPUT_TRANSLATED_DIR
 from main import run_full_book, run_preview
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
+TRANSLATED_ROOT = (BASE_DIR / OUTPUT_TRANSLATED_DIR).resolve()
 MEDIA_ROOTS = (
     BASE_DIR / "output_audio",
     BASE_DIR / "output",
@@ -33,6 +35,22 @@ def _is_within_allowed_media_roots(candidate_path: Path) -> bool:
         if resolved == root_resolved or root_resolved in resolved.parents:
             return True
     return False
+
+
+def _resolve_translated_artifact_path(raw_path: str | None) -> Path:
+    if not raw_path or not str(raw_path).strip():
+        raise ValueError("translated_path is required.")
+
+    candidate = Path(str(raw_path).strip())
+    if not candidate.is_absolute():
+        candidate = BASE_DIR / candidate
+    resolved = candidate.resolve()
+
+    if not str(resolved).endswith(".json"):
+        raise ValueError("translated_path must point to a JSON file.")
+    if resolved != TRANSLATED_ROOT and TRANSLATED_ROOT not in resolved.parents:
+        raise ValueError("translated_path must be inside output/translated/.")
+    return resolved
 
 
 @app.get("/")
@@ -104,6 +122,38 @@ def full_book():
         skip_transcription=skip_transcription,
     )
     return jsonify(result)
+
+
+@app.post("/api/save-translated")
+@require_auth
+def save_translated():
+    payload = request.get_json(silent=True) or {}
+    translated_path = payload.get("translated_path")
+    segments = payload.get("segments")
+
+    if not isinstance(segments, list):
+        return jsonify({"status": "error", "error": "segments must be a JSON array."}), 400
+
+    try:
+        output_path = _resolve_translated_artifact_path(translated_path)
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+
+    if not output_path.exists():
+        return jsonify({"status": "error", "error": "Translated artifact does not exist on disk."}), 404
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        json.dump(segments, output_file, ensure_ascii=False, indent=2)
+
+    return jsonify(
+        {
+            "status": "success",
+            "translated_path": str(output_path.relative_to(BASE_DIR)).replace("\\", "/"),
+            "segments_saved": len(segments),
+            "saved_at": int(time.time()),
+        }
+    )
 
 
 @app.get("/health")
