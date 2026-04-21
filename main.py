@@ -37,15 +37,15 @@ def _estimate_costs(segments: list[dict], duration_sec: float) -> dict:
     total_chars = sum(len(str(item.get("original_text", ""))) for item in segments)
     whisper_cost = (duration_sec / 60.0) * 0.006
     gpt_cost = (total_chars / 1_000_000.0) * 20.0
-    elevenlabs_cost = (duration_sec / 60.0) * 0.10
-    total_cost = whisper_cost + gpt_cost + elevenlabs_cost
+    total_cost = whisper_cost + gpt_cost
     return {
         "duration_min": round(duration_sec / 60.0, 2),
         "segments": len(segments),
         "characters": total_chars,
         "whisper_usd": round(whisper_cost, 2),
         "gpt_translation_usd": round(gpt_cost, 2),
-        "elevenlabs_s2s_usd": round(elevenlabs_cost, 2),
+        "voice_stage_status": "disabled_for_mvp",
+        "voice_stage_usd": 0.0,
         "total_usd": round(total_cost, 2),
     }
 
@@ -59,7 +59,7 @@ def _print_cost_breakdown(costs: dict) -> None:
     print(f"  Characters:    {costs['characters']:,}")
     print(f"  Whisper:       ~${costs['whisper_usd']:.2f}")
     print(f"  GPT-4o:        ~${costs['gpt_translation_usd']:.2f}")
-    print(f"  ElevenLabs:    ~${costs['elevenlabs_s2s_usd']:.2f}")
+    print("  ElevenLabs:    disabled for MVP (text-only mode)")
     print("  -------------------------------")
     print(f"  TOTAL:         ~${costs['total_usd']:.2f}")
     print("=" * 60)
@@ -113,7 +113,7 @@ def run(
     require_confirmation: bool = True,
 ) -> dict:
     """Run preview or full production pipeline and return artifact metadata."""
-    ensure_required_env_vars()
+    ensure_required_env_vars(include_voice_stage=False)
 
     input_path = Path(input_audio)
     if not input_path.exists():
@@ -123,7 +123,7 @@ def run(
     print("AUDIOBOOK PIPELINE")
     print(f"Input file: {input_audio}")
     print(f"Book title: {book_title}")
-    print(f"Mode:       {'Preview (first 5 min)' if preview_only else 'Full production'}")
+    print(f"Mode:       {'Preview translation (first 5 min)' if preview_only else 'Full translation'}")
     print("=" * 60)
 
     artifact_key = f"{book_title}_preview" if preview_only else book_title
@@ -131,10 +131,10 @@ def run(
 
     transcript_path = Path(OUTPUT_TRANSLATED_DIR) / f"{artifact_key}_transcript.json"
     if skip_transcription and transcript_path.exists():
-        print(f"[0/5] Loading existing transcript: {transcript_path}")
+        print(f"[0/3] Loading existing transcript: {transcript_path}")
         grouped_segments = _load_existing_transcript(transcript_path)
     else:
-        print("[0/5] Transcribing source audio with Whisper...")
+        print("[0/3] Transcribing source audio with Whisper...")
         raw_segments = transcribe_audio(processing_input)
         grouped_segments = group_segments(raw_segments)
         save_transcript(grouped_segments, artifact_key)
@@ -148,59 +148,68 @@ def run(
     if require_confirmation and not _confirm_cli("\nContinue? [y/N]: "):
         return {"status": "cancelled", "reason": "User cancelled after cost estimate."}
 
-    print("[1/5] Building and saving glossary...")
+    print("[1/3] Building and saving glossary...")
     glossary = extract_glossary(grouped_segments)
     glossary_path = save_glossary(glossary, artifact_key)
 
-    print("[2/5] Translating grouped segments...")
+    print("[2/3] Translating grouped segments...")
     translated_segments = translate_all_segments(grouped_segments, artifact_key, glossary=glossary)
+    translated_path = str(Path(OUTPUT_TRANSLATED_DIR) / f"{artifact_key}_translated.json")
 
     if preview_only:
-        print("[3/5] Synthesizing preview segments...")
-        preview_manifest = synthesize_all_segments(
-            segments=translated_segments,
-            original_audio_path=processing_input,
-            book_title=artifact_key,
-        )
-        preview_path = _build_preview_file(preview_manifest, book_title)
-        print(f"Preview ready: {preview_path}")
+        print("[3/3] Translation preview completed.")
+
+        # TODO(re-enable-voice-stage): Restore ElevenLabs preview synthesis once budget allows.
+        # print("[3/5] Synthesizing preview segments...")
+        # preview_manifest = synthesize_all_segments(
+        #     segments=translated_segments,
+        #     original_audio_path=processing_input,
+        #     book_title=artifact_key,
+        # )
+        # preview_path = _build_preview_file(preview_manifest, book_title)
+        # print(f"Preview ready: {preview_path}")
+
         return {
             "status": "success",
             "mode": "preview",
             "book_title": book_title,
-            "preview_path": preview_path,
             "transcript_path": str(transcript_path),
             "glossary_path": glossary_path,
-            "translated_path": str(Path(OUTPUT_TRANSLATED_DIR) / f"{artifact_key}_translated.json"),
-            "manifest_path": str(Path(OUTPUT_AUDIO_DIR) / f"{artifact_key}_manifest.json"),
+            "translated_path": translated_path,
+            "translated_segments_count": len(translated_segments),
+            "voice_stage": "disabled_for_mvp",
             "cost_estimate": costs,
         }
 
-    if require_confirmation and not _confirm_cli("\nStart full synthesis now? [y/N]: "):
-        return {"status": "cancelled", "reason": "User cancelled before synthesis."}
+    print("[3/3] Full translation completed.")
 
-    print("[3/5] Synthesizing translated segments with ElevenLabs...")
-    synthesize_all_segments(
-        segments=translated_segments,
-        original_audio_path=str(input_path),
-        book_title=artifact_key,
-    )
-    manifest_path = Path(OUTPUT_AUDIO_DIR) / f"{artifact_key}_manifest.json"
+    # TODO(re-enable-voice-stage): Restore full ElevenLabs + ACX pipeline once budget allows.
+    # if require_confirmation and not _confirm_cli("\nStart full synthesis now? [y/N]: "):
+    #     return {"status": "cancelled", "reason": "User cancelled before synthesis."}
+    #
+    # print("[3/5] Synthesizing translated segments with ElevenLabs...")
+    # synthesize_all_segments(
+    #     segments=translated_segments,
+    #     original_audio_path=str(input_path),
+    #     book_title=artifact_key,
+    # )
+    # manifest_path = Path(OUTPUT_AUDIO_DIR) / f"{artifact_key}_manifest.json"
+    #
+    # print("[4/5] Running postproduction and ACX verification...")
+    # post_result = run_postproduction(str(manifest_path), book_title)
+    #
+    # print("[5/5] Pipeline finished successfully.")
 
-    print("[4/5] Running postproduction and ACX verification...")
-    post_result = run_postproduction(str(manifest_path), book_title)
-
-    print("[5/5] Pipeline finished successfully.")
     return {
         "status": "success",
         "mode": "full",
         "book_title": book_title,
-        "manifest_path": str(manifest_path),
         "transcript_path": str(transcript_path),
         "glossary_path": glossary_path,
-        "translated_path": str(Path(OUTPUT_TRANSLATED_DIR) / f"{artifact_key}_translated.json"),
+        "translated_path": translated_path,
+        "translated_segments_count": len(translated_segments),
+        "voice_stage": "disabled_for_mvp",
         "cost_estimate": costs,
-        "postproduction": post_result,
     }
 
 

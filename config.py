@@ -74,26 +74,33 @@ PREVIEW_MINUTES = 5
 TRANSLATION_MIN_RATIO = 0.5
 TRANSLATION_MAX_RATIO = 2.0
 
-REQUIRED_ENV_VARS = (
-    "OPENAI_API_KEY",
+REQUIRED_ENV_VARS_TEXT_ONLY = ("OPENAI_API_KEY",)
+REQUIRED_ENV_VARS_VOICE_STAGE = (
     "ELEVENLABS_API_KEY",
     "ELEVENLABS_VOICE_ID",
 )
 
 
-def missing_required_env_vars() -> list[str]:
+def missing_required_env_vars(include_voice_stage: bool = False) -> list[str]:
     """Return required env var names that are missing or empty."""
+    required = list(REQUIRED_ENV_VARS_TEXT_ONLY)
+    if include_voice_stage:
+        required.extend(REQUIRED_ENV_VARS_VOICE_STAGE)
+
     missing = []
-    for var_name in REQUIRED_ENV_VARS:
+    for var_name in required:
         value = os.getenv(var_name, "").strip()
         if not value:
             missing.append(var_name)
     return missing
 
 
-def ensure_required_env_vars(extra_vars: Iterable[str] = ()) -> None:
+def ensure_required_env_vars(extra_vars: Iterable[str] = (), include_voice_stage: bool = False) -> None:
     """Raise a clear error if required environment variables are missing."""
-    all_required = list(REQUIRED_ENV_VARS) + list(extra_vars)
+    all_required = list(REQUIRED_ENV_VARS_TEXT_ONLY) + list(extra_vars)
+    if include_voice_stage:
+        all_required.extend(REQUIRED_ENV_VARS_VOICE_STAGE)
+
     missing = [name for name in all_required if not os.getenv(name, "").strip()]
     if missing:
         missing_display = ", ".join(sorted(set(missing)))
