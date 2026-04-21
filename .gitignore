@@ -1,31 +1,33 @@
 # Environment
 .env
+.env.local
 
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.so
-.venv/
+.Python
 venv/
+venv311/
+env/
+*.egg-info/
 
-# OS/editor
-.DS_Store
-.vscode/
-.idea/
-
-# Runtime artifacts
-temp_chunks/*
-!temp_chunks/.gitkeep
+# Project outputs (never commit source audio or generated output)
 input_audio/*
 !input_audio/.gitkeep
-
-# Pipeline outputs
-output/*
 output_audio/*
-!output/.gitkeep
 !output_audio/.gitkeep
+output/*
+!output/.gitkeep
+temp_chunks/*
+!temp_chunks/.gitkeep
 
-# Logs
-*.log
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
