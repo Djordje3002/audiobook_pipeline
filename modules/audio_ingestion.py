@@ -25,6 +25,31 @@ def _get_client() -> OpenAI:
     return OpenAI(api_key=OPENAI_API_KEY)
 
 
+def _segment_field(segment: dict | object, key: str, default=None):
+    """Read a segment field from dict-style or object-style segment values."""
+    if isinstance(segment, dict):
+        return segment.get(key, default)
+    return getattr(segment, key, default)
+
+
+def _response_segments(response) -> list:
+    """Normalize Whisper response segment extraction across SDK response shapes."""
+    if isinstance(response, dict):
+        return response.get("segments", []) or []
+
+    segments = getattr(response, "segments", None)
+    if segments is not None:
+        return segments
+
+    model_dump = getattr(response, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump()
+        if isinstance(dumped, dict):
+            return dumped.get("segments", []) or []
+
+    return []
+
+
 def split_audio_for_whisper(filepath: str) -> list[dict]:
     """Split large audio into deterministic chunks that fit Whisper limits."""
     source_path = Path(filepath)
@@ -97,16 +122,23 @@ def transcribe_audio(filepath: str) -> list[dict]:
                 timestamp_granularities=["segment"],
             )
 
-        response_segments = getattr(response, "segments", []) or []
+        response_segments = _response_segments(response)
         chunk_offset = float(chunk["chunk_start_sec"])
         core_start = float(chunk["core_start_sec"])
         core_end = float(chunk["core_end_sec"])
 
         for segment in response_segments:
-            absolute_start = float(segment.start) + chunk_offset
-            absolute_end = float(segment.end) + chunk_offset
+            start_value = _segment_field(segment, "start")
+            end_value = _segment_field(segment, "end")
+            text_value = _segment_field(segment, "text", "")
+
+            if start_value is None or end_value is None:
+                continue
+
+            absolute_start = float(start_value) + chunk_offset
+            absolute_end = float(end_value) + chunk_offset
             midpoint = (absolute_start + absolute_end) / 2.0
-            text = str(segment.text).strip()
+            text = str(text_value).strip()
             if not text:
                 continue
 
