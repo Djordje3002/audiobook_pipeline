@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f4ec;
+  --panel: #fffaf0;
+  --text: #1f1f1f;
+  --accent: #b1541a;
+  --border: #d7c8ae;
+}
+
+body {
+  margin: 0;
+  font-family: "Georgia", "Times New Roman", serif;
+  background: radial-gradient(circle at top right, #f1e2c4, var(--bg));
+  color: var(--text);
+}
+
+.container {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(0.95);
+}

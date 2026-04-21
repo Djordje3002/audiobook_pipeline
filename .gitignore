@@ -1,0 +1,31 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Runtime artifacts
+temp_chunks/*
+!temp_chunks/.gitkeep
+input_audio/*
+!input_audio/.gitkeep
+
+# Pipeline outputs
+output/*
+output_audio/*
+!output/.gitkeep
+!output_audio/.gitkeep
+
+# Logs
+*.log

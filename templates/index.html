@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audiobook Pipeline</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Serbian to English Audiobook Pipeline</h1>
+      <p>Upload audio, run preview, approve voice, then run full production.</p>
+
+      <section>
+        <h2>Pipeline Phases</h2>
+        <ol>
+          <li>Ingestion + Transcription</li>
+          <li>Glossary Extraction</li>
+          <li>Literary Translation</li>
+          <li>Voice Synthesis</li>
+          <li>Post-Production + ACX Validation</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Preview</h2>
+        <button id="runPreview">Run 5-Minute Preview</button>
+      </section>
+
+      <section>
+        <h2>Full Production</h2>
+        <button id="runFull">Run Full Book</button>
+      </section>
+
+      <section>
+        <h2>Audio Player</h2>
+        <audio controls></audio>
+      </section>
+
+      <pre id="status"></pre>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
