@@ -12,9 +12,9 @@ from config import (
     OUTPUT_AUDIO_DIR,
     OUTPUT_PREVIEW_DIR,
     OUTPUT_TRANSLATED_DIR,
+    OPENAI_API_KEY,
     PREVIEW_MINUTES,
     TEMP_CHUNKS_DIR,
-    ensure_required_env_vars,
 )
 from modules.audio_ingestion import group_segments, save_transcript, transcribe_audio
 from modules.postproduction import join_segments, run_postproduction
@@ -26,6 +26,16 @@ def _derive_book_title(source_path: str, explicit_book_title: str | None = None)
     if explicit_book_title and explicit_book_title.strip():
         return explicit_book_title.strip().replace(" ", "_")
     return Path(source_path).stem.replace(" ", "_")
+
+
+def _resolve_openai_api_key(openai_api_key: str | None = None) -> str:
+    resolved = str(openai_api_key or OPENAI_API_KEY or "").strip()
+    if not resolved:
+        raise RuntimeError(
+            "Missing OpenAI API key. Paste your key in the OpenAI field in the web app, "
+            "or set OPENAI_API_KEY in .env for CLI usage."
+        )
+    return resolved
 
 
 def _load_existing_transcript(path: Path) -> list[dict]:
@@ -111,9 +121,10 @@ def run(
     preview_only: bool = False,
     skip_transcription: bool = False,
     require_confirmation: bool = True,
+    openai_api_key: str | None = None,
 ) -> dict:
     """Run preview or full production pipeline and return artifact metadata."""
-    ensure_required_env_vars(include_voice_stage=False)
+    resolved_openai_api_key = _resolve_openai_api_key(openai_api_key)
 
     input_path = Path(input_audio)
     if not input_path.exists():
@@ -135,7 +146,7 @@ def run(
         grouped_segments = _load_existing_transcript(transcript_path)
     else:
         print("[0/3] Transcribing source audio with Whisper...")
-        raw_segments = transcribe_audio(processing_input)
+        raw_segments = transcribe_audio(processing_input, api_key=resolved_openai_api_key)
         grouped_segments = group_segments(raw_segments)
         save_transcript(grouped_segments, artifact_key)
 
@@ -153,7 +164,12 @@ def run(
     glossary_path = save_glossary(glossary, artifact_key)
 
     print("[2/3] Translating grouped segments...")
-    translated_segments = translate_all_segments(grouped_segments, artifact_key, glossary=glossary)
+    translated_segments = translate_all_segments(
+        grouped_segments,
+        artifact_key,
+        glossary=glossary,
+        openai_api_key=resolved_openai_api_key,
+    )
     translated_path = str(Path(OUTPUT_TRANSLATED_DIR) / f"{artifact_key}_translated.json")
 
     if preview_only:
@@ -213,7 +229,11 @@ def run(
     }
 
 
-def run_preview(source_path: str, book_title: str | None = None) -> dict:
+def run_preview(
+    source_path: str,
+    book_title: str | None = None,
+    openai_api_key: str | None = None,
+) -> dict:
     """Wrapper used by Flask endpoint for preview mode."""
     resolved_title = _derive_book_title(source_path, book_title)
     try:
@@ -223,12 +243,18 @@ def run_preview(source_path: str, book_title: str | None = None) -> dict:
             preview_only=True,
             skip_transcription=False,
             require_confirmation=False,
+            openai_api_key=openai_api_key,
         )
     except Exception as exc:  # pylint: disable=broad-except
         return {"status": "error", "mode": "preview", "error": str(exc)}
 
 
-def run_full_book(source_path: str, book_title: str | None = None, skip_transcription: bool = False) -> dict:
+def run_full_book(
+    source_path: str,
+    book_title: str | None = None,
+    skip_transcription: bool = False,
+    openai_api_key: str | None = None,
+) -> dict:
     """Wrapper used by Flask endpoint for full production mode."""
     resolved_title = _derive_book_title(source_path, book_title)
     try:
@@ -238,6 +264,7 @@ def run_full_book(source_path: str, book_title: str | None = None, skip_transcri
             preview_only=False,
             skip_transcription=skip_transcription,
             require_confirmation=False,
+            openai_api_key=openai_api_key,
         )
     except Exception as exc:  # pylint: disable=broad-except
         return {"status": "error", "mode": "full", "error": str(exc)}

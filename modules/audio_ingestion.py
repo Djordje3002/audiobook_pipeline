@@ -13,16 +13,26 @@ from pydub import AudioSegment
 from config import (
     MAX_CHARS_PER_SEGMENT,
     OUTPUT_TRANSLATED_DIR,
-    OPENAI_API_KEY,
     TEMP_CHUNKS_DIR,
     WHISPER_MAX_BYTES,
     WHISPER_MODEL,
     WHISPER_OVERLAP_SEC,
+    OPENAI_API_KEY,
 )
 
 
-def _get_client() -> OpenAI:
-    return OpenAI(api_key=OPENAI_API_KEY)
+def _resolve_openai_api_key(api_key: str | None = None) -> str:
+    resolved = str(api_key or OPENAI_API_KEY or "").strip()
+    if not resolved:
+        raise RuntimeError(
+            "Missing OpenAI API key. Paste your key in the web app, "
+            "or set OPENAI_API_KEY in .env for CLI usage."
+        )
+    return resolved
+
+
+def _get_client(api_key: str | None = None) -> OpenAI:
+    return OpenAI(api_key=_resolve_openai_api_key(api_key))
 
 
 def _segment_field(segment: dict | object, key: str, default=None):
@@ -104,9 +114,9 @@ def split_audio_for_whisper(filepath: str) -> list[dict]:
     return chunks
 
 
-def transcribe_audio(filepath: str) -> list[dict]:
+def transcribe_audio(filepath: str, api_key: str | None = None) -> list[dict]:
     """Transcribe Serbian audio and return normalized timestamped segments."""
-    client = _get_client()
+    client = _get_client(api_key=api_key)
     chunks = split_audio_for_whisper(filepath)
     all_segments: list[dict] = []
 

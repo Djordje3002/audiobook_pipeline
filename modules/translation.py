@@ -15,11 +15,11 @@ from tqdm import tqdm
 from config import (
     AUTHOR_STYLE,
     BOOK_GENRE,
-    OPENAI_API_KEY,
     OPENAI_MODEL,
     OPENAI_RETRY_COUNT,
     OUTPUT_TRANSLATED_DIR,
     REQUEST_DELAY_SEC,
+    OPENAI_API_KEY,
 )
 from utils.validators import validate_translation
 
@@ -27,8 +27,18 @@ NAME_RE = re.compile(r"\b[A-ZČĆŽŠĐ][a-zčćžšđ]{2,}\b")
 TOKEN_RE = re.compile(r"[A-Za-zČĆŽŠĐčćžšđ]{3,}")
 
 
-def _get_client() -> OpenAI:
-    return OpenAI(api_key=OPENAI_API_KEY)
+def _resolve_openai_api_key(api_key: str | None = None) -> str:
+    resolved = str(api_key or OPENAI_API_KEY or "").strip()
+    if not resolved:
+        raise RuntimeError(
+            "Missing OpenAI API key. Paste your key in the web app, "
+            "or set OPENAI_API_KEY in .env for CLI usage."
+        )
+    return resolved
+
+
+def _get_client(api_key: str | None = None) -> OpenAI:
+    return OpenAI(api_key=_resolve_openai_api_key(api_key))
 
 
 def extract_glossary(segments: list[dict], top_names: int = 30, top_phrases: int = 25) -> dict:
@@ -150,9 +160,14 @@ def _write_translations(output_path: Path, by_index: dict[int, dict]) -> None:
         json.dump(ordered, output_file, ensure_ascii=False, indent=2)
 
 
-def translate_all_segments(segments: list[dict], book_title: str, glossary: dict | None = None) -> list[dict]:
+def translate_all_segments(
+    segments: list[dict],
+    book_title: str,
+    glossary: dict | None = None,
+    openai_api_key: str | None = None,
+) -> list[dict]:
     """Translate segments with resume support and incremental persistence."""
-    client = _get_client()
+    client = _get_client(api_key=openai_api_key)
     os.makedirs(OUTPUT_TRANSLATED_DIR, exist_ok=True)
     output_path = Path(OUTPUT_TRANSLATED_DIR) / f"{book_title}_translated.json"
 

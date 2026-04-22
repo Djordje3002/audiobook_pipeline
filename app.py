@@ -6,13 +6,14 @@ import json
 import time
 from pathlib import Path
 
+import requests
 from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from auth import require_auth
 from config import INPUT_AUDIO_DIR, OUTPUT_TRANSLATED_DIR
 from main import run_full_book, run_preview
-from modules.reader import synthesize_translation_readback
+from modules.reader import synthesize_translation_readback, synthesize_translation_readback_elevenlabs
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,6 +53,36 @@ def _resolve_translated_artifact_path(raw_path: str | None) -> Path:
     if resolved != TRANSLATED_ROOT and TRANSLATED_ROOT not in resolved.parents:
         raise ValueError("translated_path must be inside output/translated/.")
     return resolved
+
+
+def _friendly_elevenlabs_http_error(response: requests.Response) -> str:
+    raw_text = (response.text or "")[:220]
+    status_code = response.status_code
+    api_status = ""
+    api_message = ""
+    try:
+        payload = response.json() or {}
+        detail = payload.get("detail", {})
+        if isinstance(detail, dict):
+            api_status = str(detail.get("status", "")).strip().lower()
+            api_message = str(detail.get("message", "")).strip()
+        elif isinstance(detail, str):
+            api_message = detail.strip()
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+    combined = f"{api_status} {api_message}".lower()
+    if api_status == "quota_exceeded" or "quota" in combined:
+        return "ElevenLabs quota exceeded. You have no credits left for this request."
+    if api_status in {"invalid_api_key", "unauthorized"} or status_code == 401:
+        return "Invalid ElevenLabs API key."
+    if "voice" in combined:
+        return "Voice ID not found or not available for your plan."
+    if "model" in combined:
+        return "Selected model is not available for your plan."
+    if status_code == 429:
+        return "ElevenLabs rate limit reached. Please retry shortly."
+    return f"ElevenLabs request failed ({status_code}): {api_message or raw_text}"
 
 
 @app.get("/")
@@ -104,7 +135,10 @@ def preview():
     if not str(source_path).strip():
         return jsonify({"status": "error", "error": "source_path is required."}), 400
     book_title = payload.get("book_title")
-    result = run_preview(source_path, book_title=book_title)
+    openai_api_key = str(payload.get("openai_api_key", "")).strip()
+    if not openai_api_key:
+        return jsonify({"status": "error", "error": "openai_api_key is required."}), 400
+    result = run_preview(source_path, book_title=book_title, openai_api_key=openai_api_key)
     return jsonify(result)
 
 
@@ -117,10 +151,14 @@ def full_book():
         return jsonify({"status": "error", "error": "source_path is required."}), 400
     book_title = payload.get("book_title")
     skip_transcription = bool(payload.get("skip_transcription", False))
+    openai_api_key = str(payload.get("openai_api_key", "")).strip()
+    if not openai_api_key:
+        return jsonify({"status": "error", "error": "openai_api_key is required."}), 400
     result = run_full_book(
         source_path,
         book_title=book_title,
         skip_transcription=skip_transcription,
+        openai_api_key=openai_api_key,
     )
     return jsonify(result)
 
@@ -164,6 +202,10 @@ def read_translation():
     translated_path = payload.get("translated_path")
     book_title = payload.get("book_title")
     speech_rate = payload.get("speech_rate")
+    provider = str(payload.get("provider", "local")).strip().lower() or "local"
+    elevenlabs_api_key = payload.get("elevenlabs_api_key")
+    elevenlabs_voice_id = payload.get("elevenlabs_voice_id")
+    elevenlabs_model_id = payload.get("elevenlabs_model_id")
 
     try:
         resolved_translated_path = _resolve_translated_artifact_path(translated_path)
@@ -181,11 +223,20 @@ def read_translation():
             return jsonify({"status": "error", "error": "speech_rate must be an integer."}), 400
 
     try:
-        readback_path = synthesize_translation_readback(
-            translated_path=resolved_translated_path,
-            explicit_book_title=str(book_title).strip() if book_title else None,
-            speech_rate=normalized_rate,
-        )
+        if provider == "elevenlabs":
+            readback_path = synthesize_translation_readback_elevenlabs(
+                translated_path=resolved_translated_path,
+                explicit_book_title=str(book_title).strip() if book_title else None,
+                api_key=str(elevenlabs_api_key or "").strip() or None,
+                voice_id=str(elevenlabs_voice_id or "").strip() or None,
+                model_id=str(elevenlabs_model_id or "").strip() or None,
+            )
+        else:
+            readback_path = synthesize_translation_readback(
+                translated_path=resolved_translated_path,
+                explicit_book_title=str(book_title).strip() if book_title else None,
+                speech_rate=normalized_rate,
+            )
     except Exception as exc:  # pylint: disable=broad-except
         return jsonify({"status": "error", "error": str(exc)}), 500
 
@@ -194,8 +245,58 @@ def read_translation():
     return jsonify(
         {
             "status": "success",
+            "provider": provider,
             "readback_path": str(resolved_readback_path.relative_to(BASE_DIR.resolve())).replace("\\", "/"),
             "created_at": int(time.time()),
+        }
+    )
+
+
+@app.post("/api/elevenlabs/voices")
+@require_auth
+def list_elevenlabs_voices():
+    payload = request.get_json(silent=True) or {}
+    api_key = str(payload.get("elevenlabs_api_key", "")).strip()
+    if not api_key:
+        return jsonify({"status": "error", "error": "elevenlabs_api_key is required."}), 400
+
+    headers = {"xi-api-key": api_key}
+    try:
+        response = requests.get("https://api.elevenlabs.io/v1/voices", headers=headers, timeout=60)
+    except Exception as exc:  # pylint: disable=broad-except
+        return jsonify({"status": "error", "error": f"Failed to reach ElevenLabs: {exc}"}), 502
+
+    if response.status_code != 200:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": _friendly_elevenlabs_http_error(response),
+                }
+            ),
+            502,
+        )
+
+    raw_voices = (response.json() or {}).get("voices", [])
+    voices = [
+        {
+            "voice_id": str(item.get("voice_id", "")),
+            "name": str(item.get("name", "Unnamed Voice")),
+            "category": str(item.get("category", "unknown")),
+            "description": str(item.get("description", "")),
+        }
+        for item in raw_voices
+        if item.get("voice_id")
+    ]
+    free_like_categories = {"premade", "generated"}
+    free_voices = [item for item in voices if item.get("category", "").lower() in free_like_categories]
+    return jsonify(
+        {
+            "status": "success",
+            "voices": voices,
+            "free_voices": free_voices,
+            "total_voices": len(voices),
+            "free_voice_count": len(free_voices),
         }
     )
 
