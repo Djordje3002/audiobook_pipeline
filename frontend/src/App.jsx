@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const initialResult = null;
 
@@ -43,6 +43,46 @@ const OPERATION_CONFIG = {
 
 const WORD_TOKEN_RE = /^[A-Za-z0-9ČĆŽŠĐčćžšđÀ-ÖØ-öø-ÿĀ-ž]+$/;
 const WORD_SPLIT_RE = /([A-Za-z0-9ČĆŽŠĐčćžšđÀ-ÖØ-öø-ÿĀ-ž]+)/g;
+const DEFAULT_READER_PLAYBACK_RATE = 0.75;
+const DEFAULT_ELEVENLABS_PLAYBACK_RATE = 1.0;
+const DEFAULT_TTS_BASE_RATE = 200;
+const ELEVENLABS_WORDS_PER_MINUTE = 150;
+
+const ELEVENLABS_MODEL_OPTIONS = [
+  {
+    id: 'eleven_flash_v2_5',
+    label: 'Eleven Flash v2.5',
+    costPerMinuteUsd: 0.08,
+    note: 'Fastest, lower quality',
+  },
+  {
+    id: 'eleven_turbo_v2_5',
+    label: 'Eleven Turbo v2.5',
+    costPerMinuteUsd: 0.20,
+    note: 'Balanced speed/quality',
+  },
+  {
+    id: 'eleven_multilingual_v2',
+    label: 'Eleven Multilingual v2',
+    costPerMinuteUsd: 0.30,
+    note: 'Highest quality multilingual',
+  },
+];
+
+const CREDENTIAL_STORAGE = {
+  username: 'audiobook_pipeline_username',
+  password: 'audiobook_pipeline_password',
+};
+
+function getStoredCredential(key, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 
 async function parseJsonOrError(response) {
   const text = await response.text();
@@ -107,6 +147,48 @@ function estimatePreRunCost(durationSec) {
 function errorHelp(message) {
   const msg = String(message || '').toLowerCase();
 
+  if (
+    msg.includes('elevenlabs quota exceeded') ||
+    (msg.includes('elevenlabs') && msg.includes('quota_exceeded')) ||
+    (msg.includes('elevenlabs') && msg.includes('quota exceeded')) ||
+    msg.includes('credits remaining')
+  ) {
+    return {
+      title: 'ElevenLabs quota exceeded',
+      fix: 'Your ElevenLabs credits are 0. Add credits/upgrade plan, shorten text, or use Local reader mode.',
+    };
+  }
+  if (msg.includes('elevenlabs authentication failed') || (msg.includes('elevenlabs') && msg.includes('invalid_api_key'))) {
+    return {
+      title: 'ElevenLabs API key invalid',
+      fix: 'Paste a valid ElevenLabs API key in the ElevenLabs card and retry.',
+    };
+  }
+  if (msg.includes('elevenlabs') && msg.includes('voice')) {
+    return {
+      title: 'ElevenLabs voice issue',
+      fix: 'Load voices from ElevenLabs and select one, or paste a valid Voice ID.',
+    };
+  }
+  if (msg.includes('elevenlabs') && msg.includes('model')) {
+    return {
+      title: 'ElevenLabs model issue',
+      fix: 'Choose a supported model in the ElevenLabs card and retry.',
+    };
+  }
+  if (msg.includes('elevenlabs') && msg.includes('429')) {
+    return {
+      title: 'ElevenLabs rate limit',
+      fix: 'Wait a minute and retry, or generate shorter chunks.',
+    };
+  }
+  if (msg.includes('elevenlabs') && msg.includes('401')) {
+    return {
+      title: 'ElevenLabs authentication failed',
+      fix: 'Check ElevenLabs API key in the ElevenLabs card (this is separate from app login credentials).',
+    };
+  }
+
   if (msg.includes('unexpected keyword argument') && msg.includes('proxies')) {
     return {
       title: 'Dependency mismatch',
@@ -125,6 +207,12 @@ function errorHelp(message) {
       fix: 'Upload an audio file first, then run preview or full translation.',
     };
   }
+  if (msg.includes('openai_api_key is required')) {
+    return {
+      title: 'OpenAI API key missing',
+      fix: 'Paste your OpenAI key in Step 2 (Run Translation), then start preview/full.',
+    };
+  }
   if (msg.includes('input audio file not found')) {
     return {
       title: 'Source file missing on server',
@@ -140,6 +228,45 @@ function errorHelp(message) {
   return {
     title: 'Pipeline error',
     fix: 'Check the raw API response below for details and retry once.',
+  };
+}
+
+function elevenlabsErrorHelp(message) {
+  const msg = String(message || '').toLowerCase();
+
+  if (msg.includes('quota exceeded') || msg.includes('quota_exceeded') || msg.includes('credits remaining')) {
+    return {
+      title: 'ElevenLabs quota exceeded',
+      fix: 'Add credits/upgrade, shorten text, or use Local reader mode.',
+    };
+  }
+  if (msg.includes('authentication failed') || msg.includes('invalid_api_key')) {
+    return {
+      title: 'ElevenLabs authentication failed',
+      fix: 'Paste a valid ElevenLabs API key in the ElevenLabs card.',
+    };
+  }
+  if (msg.includes('voice')) {
+    return {
+      title: 'ElevenLabs voice issue',
+      fix: 'Load voices and select one, or paste a valid Voice ID manually.',
+    };
+  }
+  if (msg.includes('model')) {
+    return {
+      title: 'ElevenLabs model issue',
+      fix: 'Switch to another model in the ElevenLabs card.',
+    };
+  }
+  if (msg.includes('429')) {
+    return {
+      title: 'ElevenLabs rate limit',
+      fix: 'Wait a minute and retry.',
+    };
+  }
+  return {
+    title: 'ElevenLabs error',
+    fix: 'Check key, voice, model, and credits in the ElevenLabs section.',
   };
 }
 
@@ -171,6 +298,37 @@ function progressState(operation, elapsedSec) {
   };
 }
 
+function countWords(text) {
+  const matches = String(text || '').match(/[A-Za-z0-9ČĆŽŠĐčćžšđÀ-ÖØ-öø-ÿĀ-ž]+/g);
+  return matches ? matches.length : 0;
+}
+
+function elevenlabsProgressState(elapsedSec, estimatedDurationSec) {
+  const totalExpected = Math.max(12, Number(estimatedDurationSec) || 20);
+  const phaseDurationsSec = [
+    2,
+    Math.max(3, Math.round(totalExpected * 0.18)),
+    Math.max(5, Math.round(totalExpected * 0.64)),
+    Math.max(2, totalExpected - 2 - Math.max(3, Math.round(totalExpected * 0.18)) - Math.max(5, Math.round(totalExpected * 0.64))),
+  ];
+
+  const cappedElapsed = Math.min(elapsedSec, totalExpected);
+  let remaining = cappedElapsed;
+  let phaseIndex = 0;
+
+  for (let idx = 0; idx < phaseDurationsSec.length; idx += 1) {
+    if (remaining <= phaseDurationsSec[idx]) {
+      phaseIndex = idx;
+      break;
+    }
+    remaining -= phaseDurationsSec[idx];
+    phaseIndex = idx;
+  }
+
+  const progressPct = Math.min(96, Math.max(5, Math.round((cappedElapsed / totalExpected) * 96)));
+  return { phaseIndex, progressPct };
+}
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -196,8 +354,9 @@ function replaceWholeWord(text, sourceWord, targetWord) {
 }
 
 export default function App() {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(() => getStoredCredential(CREDENTIAL_STORAGE.username, 'admin'));
+  const [password, setPassword] = useState(() => getStoredCredential(CREDENTIAL_STORAGE.password, ''));
+  const [openAiApiKeyInput, setOpenAiApiKeyInput] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedDurationSec, setSelectedDurationSec] = useState(0);
   const [sourcePath, setSourcePath] = useState('');
@@ -210,7 +369,9 @@ export default function App() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [progressPct, setProgressPct] = useState(0);
   const [activePhaseIndex, setActivePhaseIndex] = useState(0);
-  const [statusText, setStatusText] = useState('Ready. Step 1: enter credentials. Step 2: upload file. Step 3: run.');
+  const [statusText, setStatusText] = useState(
+    'Ready. Step 1: app login. Step 2: upload file. Step 3: paste your OpenAI key. Step 4: run.',
+  );
 
   const [result, setResult] = useState(initialResult);
   const [error, setError] = useState('');
@@ -223,9 +384,28 @@ export default function App() {
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
   const [saveStateMessage, setSaveStateMessage] = useState('');
   const [savingEdits, setSavingEdits] = useState(false);
-  const [readbackPath, setReadbackPath] = useState('');
-  const [readbackStatus, setReadbackStatus] = useState('');
-  const [creatingReadback, setCreatingReadback] = useState(false);
+  const [localReadbackPath, setLocalReadbackPath] = useState('');
+  const [localReadbackStatus, setLocalReadbackStatus] = useState('');
+  const [creatingLocalReadback, setCreatingLocalReadback] = useState(false);
+  const [confirmLocalReadbackReady, setConfirmLocalReadbackReady] = useState(false);
+  const [readbackPlaybackRate, setReadbackPlaybackRate] = useState(DEFAULT_READER_PLAYBACK_RATE);
+  const [elevenlabsPlaybackRate, setElevenlabsPlaybackRate] = useState(DEFAULT_ELEVENLABS_PLAYBACK_RATE);
+  const [elevenlabsReadbackPath, setElevenlabsReadbackPath] = useState('');
+  const [elevenlabsReadbackStatus, setElevenlabsReadbackStatus] = useState('');
+  const [creatingElevenlabsReadback, setCreatingElevenlabsReadback] = useState(false);
+  const [confirmElevenlabsReadbackReady, setConfirmElevenlabsReadbackReady] = useState(false);
+  const [elevenlabsElapsedSec, setElevenlabsElapsedSec] = useState(0);
+  const [elevenlabsProgressPct, setElevenlabsProgressPct] = useState(0);
+  const [elevenlabsPhaseIndex, setElevenlabsPhaseIndex] = useState(0);
+  const [elevenlabsStatusText, setElevenlabsStatusText] = useState('Idle');
+  const [elevenLabsApiKeyInput, setElevenLabsApiKeyInput] = useState('');
+  const [elevenLabsVoiceIdInput, setElevenLabsVoiceIdInput] = useState('');
+  const [elevenLabsModelIdInput, setElevenLabsModelIdInput] = useState('eleven_multilingual_v2');
+  const [elevenLabsVoiceOptions, setElevenLabsVoiceOptions] = useState([]);
+  const [elevenLabsSelectedVoiceOption, setElevenLabsSelectedVoiceOption] = useState('');
+  const [loadingElevenLabsVoices, setLoadingElevenLabsVoices] = useState(false);
+  const [elevenLabsVoiceLoadError, setElevenLabsVoiceLoadError] = useState('');
+  const [elevenlabsError, setElevenlabsError] = useState('');
   const [wordEdit, setWordEdit] = useState({
     open: false,
     segmentIndex: null,
@@ -249,13 +429,18 @@ export default function App() {
     if (!translatedPath) return '';
     return `/media/${encodeURI(translatedPath)}`;
   }, [translatedPath]);
-  const readbackMediaUrl = useMemo(() => {
-    if (!readbackPath) return '';
-    return `/media/${encodeURI(readbackPath)}`;
-  }, [readbackPath]);
+  const localReadbackMediaUrl = useMemo(() => {
+    if (!localReadbackPath) return '';
+    return `/media/${encodeURI(localReadbackPath)}`;
+  }, [localReadbackPath]);
+  const elevenlabsReadbackMediaUrl = useMemo(() => {
+    if (!elevenlabsReadbackPath) return '';
+    return `/media/${encodeURI(elevenlabsReadbackPath)}`;
+  }, [elevenlabsReadbackPath]);
 
   const currentPhases = OPERATION_CONFIG[operation]?.phases || OPERATION_CONFIG.idle.phases;
   const errGuide = error ? errorHelp(error) : null;
+  const elevenlabsErrGuide = elevenlabsError ? elevenlabsErrorHelp(elevenlabsError) : null;
   const preRunEstimate = useMemo(() => estimatePreRunCost(selectedDurationSec), [selectedDurationSec]);
   const backendEstimate = result?.cost_estimate || null;
   const filteredSegments = useMemo(() => {
@@ -283,6 +468,40 @@ export default function App() {
       ).length,
     [translatedSegments],
   );
+  const selectedElevenlabsModel = useMemo(
+    () =>
+      ELEVENLABS_MODEL_OPTIONS.find((item) => item.id === elevenLabsModelIdInput) ||
+      ELEVENLABS_MODEL_OPTIONS[ELEVENLABS_MODEL_OPTIONS.length - 1],
+    [elevenLabsModelIdInput],
+  );
+  const elevenlabsEstimate = useMemo(() => {
+    const charCount = translatedSegments.reduce(
+      (sum, segment) => sum + String(segment.translated_text || '').length,
+      0,
+    );
+    const wordCount = translatedSegments.reduce(
+      (sum, segment) => sum + countWords(segment.translated_text),
+      0,
+    );
+    const estimatedMinutes = wordCount > 0 ? wordCount / ELEVENLABS_WORDS_PER_MINUTE : 0;
+    const costPerMinute = Number(selectedElevenlabsModel?.costPerMinuteUsd || 0);
+    const estimatedCostUsd = estimatedMinutes * costPerMinute;
+    const estimatedProcessingSec = Math.max(
+      14,
+      Math.min(240, Math.round(8 + estimatedMinutes * 8)),
+    );
+    return {
+      charCount,
+      estimatedCredits: charCount,
+      wordCount,
+      estimatedMinutes,
+      estimatedCostUsd,
+      estimatedProcessingSec,
+      costPerMinute,
+    };
+  }, [translatedSegments, selectedElevenlabsModel]);
+  const localReadbackAudioRef = useRef(null);
+  const elevenlabsReadbackAudioRef = useRef(null);
 
   useEffect(() => {
     if (!loading || operation === 'idle') return undefined;
@@ -299,6 +518,23 @@ export default function App() {
 
     return () => clearInterval(timer);
   }, [loading, operation]);
+
+  useEffect(() => {
+    if (!creatingElevenlabsReadback) return undefined;
+
+    const timer = setInterval(() => {
+      setElevenlabsElapsedSec((prev) => {
+        const next = prev + 1;
+        const state = elevenlabsProgressState(next, elevenlabsEstimate.estimatedProcessingSec);
+        setElevenlabsPhaseIndex(state.phaseIndex);
+        setElevenlabsProgressPct(state.progressPct);
+        setElevenlabsStatusText('Generating...');
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [creatingElevenlabsReadback, elevenlabsEstimate.estimatedProcessingSec]);
 
   useEffect(() => {
     async function loadTranslatedArtifact() {
@@ -319,16 +555,44 @@ export default function App() {
         setTranslatedSegments(data);
         setHasUnsavedEdits(false);
         setSaveStateMessage('');
-        setReadbackPath('');
-        setReadbackStatus('');
+        setLocalReadbackPath('');
+        setLocalReadbackStatus('');
+        setConfirmLocalReadbackReady(false);
+        setElevenlabsReadbackPath('');
+        setElevenlabsReadbackStatus('');
+        setConfirmElevenlabsReadbackReady(false);
+        setElevenlabsElapsedSec(0);
+        setElevenlabsProgressPct(0);
+        setElevenlabsPhaseIndex(0);
+        setElevenlabsStatusText('Idle');
+        setElevenlabsPlaybackRate(DEFAULT_ELEVENLABS_PLAYBACK_RATE);
+        setElevenLabsVoiceOptions([]);
+        setElevenLabsSelectedVoiceOption('');
+        setLoadingElevenLabsVoices(false);
+        setElevenLabsVoiceLoadError('');
+        setElevenlabsError('');
         setWordEdit((prev) => ({ ...prev, open: false }));
         setTranslationArtifactError('');
       } catch (artifactError) {
         setTranslatedSegments([]);
         setHasUnsavedEdits(false);
         setSaveStateMessage('');
-        setReadbackPath('');
-        setReadbackStatus('');
+        setLocalReadbackPath('');
+        setLocalReadbackStatus('');
+        setConfirmLocalReadbackReady(false);
+        setElevenlabsReadbackPath('');
+        setElevenlabsReadbackStatus('');
+        setConfirmElevenlabsReadbackReady(false);
+        setElevenlabsElapsedSec(0);
+        setElevenlabsProgressPct(0);
+        setElevenlabsPhaseIndex(0);
+        setElevenlabsStatusText('Idle');
+        setElevenlabsPlaybackRate(DEFAULT_ELEVENLABS_PLAYBACK_RATE);
+        setElevenLabsVoiceOptions([]);
+        setElevenLabsSelectedVoiceOption('');
+        setLoadingElevenLabsVoices(false);
+        setElevenLabsVoiceLoadError('');
+        setElevenlabsError('');
         setTranslationArtifactError(artifactError.message);
       }
     }
@@ -345,6 +609,42 @@ export default function App() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (username.trim()) {
+        window.localStorage.setItem(CREDENTIAL_STORAGE.username, username);
+      } else {
+        window.localStorage.removeItem(CREDENTIAL_STORAGE.username);
+      }
+    } catch {
+      // Ignore storage errors in restricted browser contexts.
+    }
+  }, [username]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (password) {
+        window.localStorage.setItem(CREDENTIAL_STORAGE.password, password);
+      } else {
+        window.localStorage.removeItem(CREDENTIAL_STORAGE.password);
+      }
+    } catch {
+      // Ignore storage errors in restricted browser contexts.
+    }
+  }, [password]);
+
+  useEffect(() => {
+    if (!localReadbackAudioRef.current) return;
+    localReadbackAudioRef.current.playbackRate = readbackPlaybackRate;
+  }, [localReadbackMediaUrl, readbackPlaybackRate]);
+
+  useEffect(() => {
+    if (!elevenlabsReadbackAudioRef.current) return;
+    elevenlabsReadbackAudioRef.current.playbackRate = elevenlabsPlaybackRate;
+  }, [elevenlabsReadbackMediaUrl, elevenlabsPlaybackRate]);
 
   function handleFileSelection(file) {
     setSelectedFile(file);
@@ -373,6 +673,20 @@ export default function App() {
     setProgressPct(4);
     setActivePhaseIndex(0);
     setStatusText(text);
+  }
+
+  function clearSavedCredentials() {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(CREDENTIAL_STORAGE.username);
+        window.localStorage.removeItem(CREDENTIAL_STORAGE.password);
+      } catch {
+        // Ignore storage errors in restricted browser contexts.
+      }
+    }
+    setUsername('admin');
+    setPassword('');
+    setStatusText('Saved login cleared. Enter credentials again.');
   }
 
   function jumpToSegment() {
@@ -437,6 +751,14 @@ export default function App() {
     link.download = `${bookTitle || 'translation'}_en.txt`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadElevenlabsAudio() {
+    if (!elevenlabsReadbackMediaUrl) return;
+    const link = document.createElement('a');
+    link.href = elevenlabsReadbackMediaUrl;
+    link.download = `${bookTitle || 'translation'}_elevenlabs_tts.mp3`;
+    link.click();
   }
 
   function openWordEditor(segmentIndex, field, clickedWord) {
@@ -546,7 +868,7 @@ export default function App() {
     }
   }
 
-  async function createReadbackAudio() {
+  async function createLocalReadbackAudio() {
     if (!authHeader) {
       setError('Enter API credentials first.');
       return;
@@ -555,9 +877,71 @@ export default function App() {
       setError('No translated artifact path available.');
       return;
     }
+    if (!confirmLocalReadbackReady) {
+      setError('Please confirm translation quality before generating voice readback.');
+      return;
+    }
 
-    setCreatingReadback(true);
-    setReadbackStatus('Generating reader audio...');
+    setCreatingLocalReadback(true);
+    setLocalReadbackStatus('Generating local reader audio...');
+    setError('');
+    const normalizedSpeechRate = Math.max(80, Math.round(DEFAULT_TTS_BASE_RATE * readbackPlaybackRate));
+
+    try {
+      const response = await fetch('/api/read', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({
+          translated_path: translatedPath,
+          book_title: bookTitle.trim() || undefined,
+          speech_rate: normalizedSpeechRate,
+          provider: 'local',
+        }),
+      });
+      const data = await parseJsonOrError(response);
+      setLocalReadbackPath(data.readback_path || '');
+      setLocalReadbackStatus('Local reader audio is ready.');
+    } catch (readerError) {
+      setLocalReadbackPath('');
+      setLocalReadbackStatus('');
+      setError(readerError.message);
+    } finally {
+      setCreatingLocalReadback(false);
+    }
+  }
+
+  async function createElevenlabsReadbackAudio() {
+    if (!authHeader) {
+      setElevenlabsError('Enter API credentials first.');
+      return;
+    }
+    if (!translatedPath) {
+      setElevenlabsError('No translated artifact path available.');
+      return;
+    }
+    if (!confirmElevenlabsReadbackReady) {
+      setElevenlabsError('Please confirm translation quality before generating ElevenLabs TTS.');
+      return;
+    }
+    if (!elevenLabsApiKeyInput.trim()) {
+      setElevenlabsError('Enter ElevenLabs API key for this test run.');
+      return;
+    }
+    if (!elevenLabsVoiceIdInput.trim()) {
+      setElevenlabsError('Enter Voice ID manually or load free/premade voices and select one.');
+      return;
+    }
+
+    setCreatingElevenlabsReadback(true);
+    setElevenlabsReadbackStatus('Generating ElevenLabs TTS audio...');
+    setElevenlabsStatusText('Starting ElevenLabs request...');
+    setElevenlabsElapsedSec(0);
+    setElevenlabsProgressPct(4);
+    setElevenlabsPhaseIndex(0);
+    setElevenlabsError('');
     setError('');
 
     try {
@@ -570,17 +954,71 @@ export default function App() {
         body: JSON.stringify({
           translated_path: translatedPath,
           book_title: bookTitle.trim() || undefined,
+          provider: 'elevenlabs',
+          elevenlabs_api_key: elevenLabsApiKeyInput.trim(),
+          elevenlabs_voice_id: elevenLabsVoiceIdInput.trim(),
+          elevenlabs_model_id: elevenLabsModelIdInput.trim(),
         }),
       });
       const data = await parseJsonOrError(response);
-      setReadbackPath(data.readback_path || '');
-      setReadbackStatus('Reader audio is ready.');
+      setElevenlabsReadbackPath(data.readback_path || '');
+      setElevenlabsReadbackStatus('ElevenLabs reader audio is ready.');
+      setElevenlabsProgressPct(100);
+      setElevenlabsStatusText('Completed');
     } catch (readerError) {
-      setReadbackPath('');
-      setReadbackStatus('');
-      setError(readerError.message);
+      setElevenlabsReadbackPath('');
+      setElevenlabsReadbackStatus('');
+      setElevenlabsStatusText('Failed');
+      setElevenlabsError(readerError.message);
     } finally {
-      setCreatingReadback(false);
+      setCreatingElevenlabsReadback(false);
+    }
+  }
+
+  async function loadElevenLabsVoices() {
+    if (!authHeader) {
+      setElevenlabsError('Enter API credentials first.');
+      return;
+    }
+    if (!elevenLabsApiKeyInput.trim()) {
+      setElevenlabsError('Enter ElevenLabs API key first.');
+      return;
+    }
+
+    setLoadingElevenLabsVoices(true);
+    setElevenLabsVoiceLoadError('');
+    setElevenlabsError('');
+    try {
+      const response = await fetch('/api/elevenlabs/voices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({
+          elevenlabs_api_key: elevenLabsApiKeyInput.trim(),
+        }),
+      });
+      const data = await parseJsonOrError(response);
+      const freeVoices = Array.isArray(data.free_voices) ? data.free_voices : [];
+      const fallbackVoices = Array.isArray(data.voices) ? data.voices : [];
+      const usableVoices = freeVoices.length ? freeVoices : fallbackVoices;
+      setElevenLabsVoiceOptions(usableVoices);
+      if (usableVoices.length > 0) {
+        const firstVoiceId = String(usableVoices[0].voice_id || '');
+        setElevenLabsSelectedVoiceOption(firstVoiceId);
+        setElevenLabsVoiceIdInput(firstVoiceId);
+      } else {
+        setElevenLabsSelectedVoiceOption('');
+      }
+      setElevenLabsVoiceLoadError('');
+    } catch (voiceError) {
+      setElevenLabsVoiceOptions([]);
+      setElevenLabsSelectedVoiceOption('');
+      setElevenLabsVoiceLoadError(voiceError.message);
+      setElevenlabsError(voiceError.message);
+    } finally {
+      setLoadingElevenLabsVoices(false);
     }
   }
 
@@ -661,6 +1099,10 @@ export default function App() {
       setError('Enter API credentials first.');
       return;
     }
+    if (!openAiApiKeyInput.trim()) {
+      setError('Enter your OpenAI API key for translation.');
+      return;
+    }
 
     if (!sourcePath.trim()) {
       setError('Upload a file first.');
@@ -674,8 +1116,22 @@ export default function App() {
     setTranslationArtifactError('');
     setHasUnsavedEdits(false);
     setSaveStateMessage('');
-    setReadbackPath('');
-    setReadbackStatus('');
+    setLocalReadbackPath('');
+    setLocalReadbackStatus('');
+    setConfirmLocalReadbackReady(false);
+    setElevenlabsReadbackPath('');
+    setElevenlabsReadbackStatus('');
+    setConfirmElevenlabsReadbackReady(false);
+    setElevenlabsElapsedSec(0);
+    setElevenlabsProgressPct(0);
+    setElevenlabsPhaseIndex(0);
+    setElevenlabsStatusText('Idle');
+    setElevenlabsPlaybackRate(DEFAULT_ELEVENLABS_PLAYBACK_RATE);
+    setElevenLabsVoiceOptions([]);
+    setElevenLabsSelectedVoiceOption('');
+    setLoadingElevenLabsVoices(false);
+    setElevenLabsVoiceLoadError('');
+    setElevenlabsError('');
     setWordEdit((prev) => ({ ...prev, open: false }));
 
     startOperation(
@@ -688,6 +1144,7 @@ export default function App() {
       source_path: sourcePath.trim(),
       book_title: bookTitle.trim() || undefined,
       skip_transcription: skipTranscription,
+      openai_api_key: openAiApiKeyInput.trim(),
     };
 
     try {
@@ -740,6 +1197,7 @@ export default function App() {
       <main className="layout-grid">
         <section className="panel">
           <h2>0) API Credentials</h2>
+          <p className="status">Saved on this browser so you only enter them once.</p>
           <label>
             Username
             <input type="text" value={username} onChange={(event) => setUsername(event.target.value)} />
@@ -748,6 +1206,9 @@ export default function App() {
             Password
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </label>
+          <button className="tiny-button" type="button" onClick={clearSavedCredentials}>
+            Clear Saved Login
+          </button>
         </section>
 
         <section className="panel">
@@ -771,12 +1232,21 @@ export default function App() {
             Book Title
             <input type="text" value={bookTitle} onChange={(event) => setBookTitle(event.target.value)} />
           </label>
+          <label>
+            OpenAI API Key (used for Whisper + translation)
+            <input
+              type="password"
+              value={openAiApiKeyInput}
+              onChange={(event) => setOpenAiApiKeyInput(event.target.value)}
+              placeholder="sk-..."
+            />
+          </label>
 
           <div className="button-row">
-            <button className="action-button" disabled={loading || !sourcePath || !authHeader} onClick={() => runPipeline('preview')}>
+            <button className="action-button" disabled={loading || !sourcePath || !authHeader || !openAiApiKeyInput.trim()} onClick={() => runPipeline('preview')}>
               Run 5-Minute Translation Preview
             </button>
-            <button className="action-button secondary" disabled={loading || !sourcePath || !authHeader} onClick={() => runPipeline('full')}>
+            <button className="action-button secondary" disabled={loading || !sourcePath || !authHeader || !openAiApiKeyInput.trim()} onClick={() => runPipeline('full')}>
               Run Full Translation
             </button>
           </div>
@@ -992,24 +1462,6 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="reader-tools">
-                <button
-                  className="tiny-button"
-                  type="button"
-                  onClick={createReadbackAudio}
-                  disabled={creatingReadback || !translatedPath}
-                >
-                  {creatingReadback ? 'Generating Reader Audio...' : 'Read Whole Translation'}
-                </button>
-                {readbackStatus ? <span className="reader-status">{readbackStatus}</span> : null}
-              </div>
-
-              {readbackMediaUrl ? (
-                <div className="reader-player">
-                  <audio controls src={readbackMediaUrl} preload="metadata" />
-                </div>
-              ) : null}
-
               <div className="table-wrap">
                 <table className="segment-table">
                   <thead>
@@ -1065,6 +1517,49 @@ export default function App() {
                   Next
                 </button>
               </div>
+
+              <div className="reader-review-card">
+                <label className="checkbox-row reader-confirm">
+                  <input
+                    type="checkbox"
+                    checked={confirmLocalReadbackReady}
+                    onChange={(event) => setConfirmLocalReadbackReady(event.target.checked)}
+                  />
+                  Confirm translation quality before generating local readback.
+                </label>
+
+                <div className="reader-tools">
+                  <label>
+                    Reader speed
+                    <select
+                      value={String(readbackPlaybackRate)}
+                      onChange={(event) => setReadbackPlaybackRate(Number(event.target.value))}
+                    >
+                      <option value="0.6">0.60x</option>
+                      <option value="0.75">0.75x</option>
+                      <option value="0.9">0.90x</option>
+                      <option value="1">1.00x</option>
+                      <option value="1.5">1.50x</option>
+                      <option value="2">2.00x</option>
+                    </select>
+                  </label>
+                  <button
+                    className="tiny-button"
+                    type="button"
+                    onClick={createLocalReadbackAudio}
+                    disabled={creatingLocalReadback || !translatedPath || !confirmLocalReadbackReady}
+                  >
+                    {creatingLocalReadback ? 'Generating Local Reader...' : 'Read Whole Translation (Free Local)'}
+                  </button>
+                  {localReadbackStatus ? <span className="reader-status">{localReadbackStatus}</span> : null}
+                </div>
+
+                {localReadbackMediaUrl ? (
+                  <div className="reader-player">
+                    <audio ref={localReadbackAudioRef} controls src={localReadbackMediaUrl} preload="metadata" />
+                  </div>
+                ) : null}
+              </div>
             </>
           )}
 
@@ -1073,6 +1568,202 @@ export default function App() {
 
           <h3>Last API Response</h3>
           <pre>{result ? JSON.stringify(result, null, 2) : 'No response yet.'}</pre>
+        </section>
+
+        <section className="panel wide">
+          <h2>5) ElevenLabs TTS Trial</h2>
+          {translatedSegments.length === 0 ? (
+            <p className="status">Run translation first to enable ElevenLabs TTS estimation and generation.</p>
+          ) : (
+            <>
+              <p className="status">
+                Select model and review estimated cost before generating. Cost rates below are estimates per minute and may vary by plan.
+              </p>
+
+              {elevenlabsError && elevenlabsErrGuide ? (
+                <div className="error-card">
+                  <strong>{elevenlabsErrGuide.title}</strong>
+                  <p>{elevenlabsError}</p>
+                  <p className="error-fix">Fix: {elevenlabsErrGuide.fix}</p>
+                </div>
+              ) : null}
+
+              <div className="elevenlabs-model-list">
+                {ELEVENLABS_MODEL_OPTIONS.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    className={`elevenlabs-model-card ${model.id === elevenLabsModelIdInput ? 'active' : ''}`}
+                    onClick={() => {
+                      setElevenLabsModelIdInput(model.id);
+                      setElevenlabsError('');
+                    }}
+                  >
+                    <div>
+                      <strong>{model.label}</strong>
+                    </div>
+                    <div>{formatUsd(model.costPerMinuteUsd)} / min</div>
+                    <div className="model-note">{model.note}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="reader-provider-grid">
+                <label>
+                  ElevenLabs API Key
+                  <input
+                    type="password"
+                    value={elevenLabsApiKeyInput}
+                    onChange={(event) => {
+                      setElevenLabsApiKeyInput(event.target.value);
+                      setElevenlabsError('');
+                    }}
+                    placeholder="YOUR_ELEVENLABS_API_KEY"
+                  />
+                </label>
+                <label>
+                  Voice ID (paste manually)
+                  <input
+                    type="text"
+                    value={elevenLabsVoiceIdInput}
+                    onChange={(event) => {
+                      setElevenLabsVoiceIdInput(event.target.value);
+                      setElevenLabsSelectedVoiceOption('');
+                      setElevenlabsError('');
+                    }}
+                    placeholder="JBFqnCBsd6RMkjVDRZzb"
+                  />
+                </label>
+              </div>
+
+              <div className="reader-tools">
+                <button
+                  className="tiny-button"
+                  type="button"
+                  onClick={loadElevenLabsVoices}
+                  disabled={loadingElevenLabsVoices || !elevenLabsApiKeyInput.trim()}
+                >
+                  {loadingElevenLabsVoices ? 'Loading Voices...' : 'Load Free/Premade Voices'}
+                </button>
+                {elevenLabsVoiceOptions.length > 0 ? (
+                  <label>
+                    Choose voice from list
+                    <select
+                      value={elevenLabsSelectedVoiceOption}
+                      onChange={(event) => {
+                        const nextVoiceId = event.target.value;
+                        setElevenLabsSelectedVoiceOption(nextVoiceId);
+                        setElevenLabsVoiceIdInput(nextVoiceId);
+                        setElevenlabsError('');
+                      }}
+                    >
+                      {elevenLabsVoiceOptions.map((voice) => (
+                        <option key={voice.voice_id} value={voice.voice_id}>
+                          {voice.name} ({voice.category})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <span className="reader-status">Load voices to choose free/premade options for your plan.</span>
+                )}
+              </div>
+
+              {elevenLabsVoiceLoadError ? (
+                <div className="error-card">
+                  <strong>Voice list load failed</strong>
+                  <p>{elevenLabsVoiceLoadError}</p>
+                </div>
+              ) : null}
+
+              <div className="cost-grid">
+                <div className="cost-card">
+                  <h3>Selected Model</h3>
+                  <p>{selectedElevenlabsModel.label}</p>
+                  <p>Rate: {formatUsd(elevenlabsEstimate.costPerMinute)} / min</p>
+                  <p>Characters: {elevenlabsEstimate.charCount.toLocaleString()}</p>
+                  <p>Words detected: {elevenlabsEstimate.wordCount.toLocaleString()}</p>
+                </div>
+                <div className="cost-card">
+                  <h3>Before Generate</h3>
+                  <p>Estimated speech length: {elevenlabsEstimate.estimatedMinutes.toFixed(2)} min</p>
+                  <p>Estimated credits: <strong>{Math.max(0, Math.round(elevenlabsEstimate.estimatedCredits)).toLocaleString()}</strong></p>
+                  <p>Estimated cost: <strong>{formatUsd(elevenlabsEstimate.estimatedCostUsd)}</strong></p>
+                  <p>Estimated processing: ~{Math.max(1, Math.round(elevenlabsEstimate.estimatedProcessingSec / 60))} min</p>
+                </div>
+              </div>
+
+              <label className="checkbox-row reader-confirm">
+                <input
+                  type="checkbox"
+                  checked={confirmElevenlabsReadbackReady}
+                  onChange={(event) => setConfirmElevenlabsReadbackReady(event.target.checked)}
+                />
+                I checked the translation and accept this estimated ElevenLabs cost.
+              </label>
+
+              <div className="reader-tools">
+                <label>
+                  Playback speed
+                  <select
+                    value={String(elevenlabsPlaybackRate)}
+                    onChange={(event) => setElevenlabsPlaybackRate(Number(event.target.value))}
+                  >
+                    <option value="0.6">0.60x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="0.9">0.90x</option>
+                    <option value="1">1.00x</option>
+                    <option value="1.5">1.50x</option>
+                    <option value="2">2.00x</option>
+                  </select>
+                </label>
+                <button
+                  className="tiny-button"
+                  type="button"
+                  onClick={createElevenlabsReadbackAudio}
+                  disabled={
+                    creatingElevenlabsReadback ||
+                    !translatedPath ||
+                    !confirmElevenlabsReadbackReady ||
+                    !elevenLabsApiKeyInput.trim() ||
+                    !elevenLabsVoiceIdInput.trim()
+                  }
+                >
+                  {creatingElevenlabsReadback ? 'Generating ElevenLabs TTS...' : 'Generate ElevenLabs TTS'}
+                </button>
+                <button
+                  className="tiny-button"
+                  type="button"
+                  onClick={downloadElevenlabsAudio}
+                  disabled={!elevenlabsReadbackMediaUrl}
+                >
+                  Download ElevenLabs Audio
+                </button>
+                {elevenlabsReadbackStatus ? <span className="reader-status">{elevenlabsReadbackStatus}</span> : null}
+              </div>
+
+              <div className="progress-head">
+                <span>ElevenLabs TTS Progress</span>
+                <span>
+                  {creatingElevenlabsReadback
+                    ? `ElevenLabs TTS • ${elevenlabsElapsedSec}s`
+                    : elevenlabsReadbackPath
+                      ? 'Completed'
+                      : 'Idle'}
+                </span>
+              </div>
+              <div className={`progress-track ${creatingElevenlabsReadback ? 'active' : ''}`}>
+                <div className="progress-fill" style={{ width: `${elevenlabsProgressPct}%` }} />
+              </div>
+              <div className="progress-meta">{elevenlabsProgressPct}%</div>
+
+              {elevenlabsReadbackMediaUrl ? (
+                <div className="reader-player">
+                  <audio ref={elevenlabsReadbackAudioRef} controls src={elevenlabsReadbackMediaUrl} preload="metadata" />
+                </div>
+              ) : null}
+            </>
+          )}
         </section>
       </main>
     </div>
