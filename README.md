@@ -84,7 +84,7 @@ Cost scales with audiobook length.
 - Flask web application.
 - Deployable to Railway or any Python-compatible host.
 - HTTP Basic Authentication for access control.
-- API keys stored only as environment variables, never in code.
+- OpenAI and ElevenLabs keys can be provided per run from the UI (recommended for client billing separation), with `.env` fallback for CLI/server defaults.
 - Supports large uploads, long-running background jobs, and resume-capable processing without requiring an open browser session.
 
 ## Product Goal
@@ -182,13 +182,15 @@ Current MVP runs in text-only mode to reduce costs:
 - Segment table + JSON shown in the React UI
 
 Voice cloning, synthesis, and ACX export are temporarily disabled in orchestration.
+For web runs, `openai_api_key` is required in API requests so translation always bills the end user's key.
 
 ### MVP Run Order
 
 1. Upload source audio in the web app.
-2. Run **5-Minute Translation Preview**.
-3. Review translated segments in the table.
-4. Run **Full Translation** when preview quality is good.
+2. Paste your **OpenAI API key** in Step 2 (Run Translation).
+3. Run **5-Minute Translation Preview**.
+4. Review translated segments in the table.
+5. Run **Full Translation** when preview quality is good.
 
 Primary output files:
 - `output/translated/<book>_transcript.json`
