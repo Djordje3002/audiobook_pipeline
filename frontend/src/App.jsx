@@ -11,6 +11,18 @@ const FALLBACK_LANGUAGES = [
   { code: 'pt', name: 'Portuguese', native_name: 'Português' },
 ];
 
+const FALLBACK_WORKFLOWS = [
+  { id: 'audio_translate', name: 'Translate a recording', short_name: 'Audio → translated text', description: 'Turn spoken audio into timestamped editions in other languages.', input_kind: 'audio', output_kind: 'translated_text', requires_targets: true, requires_voice_provider: false, requires_voice_consent: false, icon: 'globe', available: true, availability_note: 'Ready' },
+  { id: 'audio_transcribe', name: 'Transcribe a recording', short_name: 'Audio → transcript', description: 'Create a clean timestamped transcript without translating the recording.', input_kind: 'audio', output_kind: 'transcript', requires_targets: false, requires_voice_provider: false, requires_voice_consent: false, icon: 'wave', available: true, availability_note: 'Ready' },
+  { id: 'audio_dub', name: 'Dub into other languages', short_name: 'Audio → translated audio', description: 'Translate a recording and render narrated audio for every selected language.', input_kind: 'audio', output_kind: 'translated_audio', requires_targets: true, requires_voice_provider: true, requires_voice_consent: true, icon: 'spark', available: false, availability_note: 'Connect a voice provider to run this workflow' },
+  { id: 'document_translate', name: 'Translate a book', short_name: 'Book → translated text', description: 'Turn a TXT, Markdown, or DOCX manuscript into consistent multilingual editions.', input_kind: 'document', output_kind: 'translated_text', requires_targets: true, requires_voice_provider: false, requires_voice_consent: false, icon: 'file', available: true, availability_note: 'Ready' },
+  { id: 'document_narrate', name: 'Create an audiobook', short_name: 'Book → narrated audio', description: 'Convert a manuscript into a narrated audio edition in its original language.', input_kind: 'document', output_kind: 'narrated_audio', requires_targets: false, requires_voice_provider: true, requires_voice_consent: true, icon: 'play', available: false, availability_note: 'Connect a voice provider to run this workflow' },
+];
+
+function workflowFor(workflows, workflowId) {
+  return workflows.find((workflow) => workflow.id === workflowId) || FALLBACK_WORKFLOWS[0];
+}
+
 function Icon({ name, size = 20 }) {
   const paths = {
     arrow: <><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></>,
@@ -120,16 +132,16 @@ function Landing({ session, navigate, languages }) {
       <main>
         <section className="hero-section">
           <div className="hero-copy">
-            <div className="announcement"><span>New</span> 34-language localization studio <Icon name="arrow" size={15}/></div>
+            <div className="announcement"><span>New</span> Five creator workflows · 34 languages <Icon name="arrow" size={15}/></div>
             <h1>Your story,<br/><em>heard everywhere.</em></h1>
-            <p className="hero-lede">Transform long-form audio into carefully translated, production-ready editions—without losing the voice, rhythm, or soul of the original.</p>
+            <p className="hero-lede">Turn a book into an audiobook, a recording into a transcript, or one language into many—inside one production workspace that adapts to your goal.</p>
             <div className="hero-actions">
-              <button className="button button-acid button-large" onClick={() => navigate(session?.user ? '/app/projects/new' : '/register')}>Localize your first chapter <Icon name="arrow"/></button>
+              <button className="button button-acid button-large" onClick={() => navigate(session?.user ? '/app/projects/new' : '/register')}>Choose what to create <Icon name="arrow"/></button>
               <a href="#workflow" className="text-link">See how it works <span>↓</span></a>
             </div>
             <div className="hero-proof">
               <div className="avatar-stack"><span>AM</span><span>JK</span><span>LN</span><span>+2k</span></div>
-              <div><strong>Built for storytellers</strong><small>Audiobooks, podcasts & documentary</small></div>
+              <div><strong>Built for storytellers</strong><small>Books, audiobooks, podcasts & documentary</small></div>
             </div>
           </div>
           <div className="hero-visual" aria-label="Audio localization preview">
@@ -157,13 +169,19 @@ function Landing({ session, navigate, languages }) {
         </section>
 
         <section className="metric-strip">
-          <p>Made for long-form audio where <strong>every word matters.</strong></p>
-          <div><span><strong>34</strong> languages</span><span><strong>12×</strong> faster workflow</span><span><strong>1</strong> consistent glossary</span></div>
+          <p>One source can become <strong>exactly what you need.</strong></p>
+          <div><span><strong>5</strong> transformations</span><span><strong>34</strong> languages</span><span><strong>1</strong> focused studio</span></div>
+        </section>
+
+        <section className="transform-section section-pad">
+          <div className="section-kicker">Choose your outcome</div>
+          <div className="section-title-row"><h2>Start with the result.<br/>The workflow follows.</h2><p>No generic upload screen. Choose the transformation and the studio asks only for the source, languages, and permissions that apply.</p></div>
+          <div className="transform-showcase">{FALLBACK_WORKFLOWS.map((workflow, index) => <article key={workflow.id}><span className="transform-number">0{index + 1}</span><i><Icon name={workflow.icon}/></i><small>{workflow.short_name}</small><h3>{workflow.name}</h3><p>{workflow.description}</p><button onClick={() => navigate(session?.user ? '/app/projects/new' : '/register')}>Create this <Icon name="arrow" size={15}/></button></article>)}</div>
         </section>
 
         <section className="feature-section section-pad">
           <div className="section-kicker">More than translation</div>
-          <div className="section-title-row"><h2>A complete localization desk,<br/>built around your story.</h2><p>Go from raw narration to an editable multilingual package in one focused workspace.</p></div>
+          <div className="section-title-row"><h2>A complete production desk,<br/>built around your story.</h2><p>Go from manuscript or raw recording to the exact text, translation, or audio deliverable you need.</p></div>
           <div className="feature-grid">
             <article className="feature-card feature-dark"><span className="feature-icon"><Icon name="wave"/></span><div className="mini-wave"><Waveform small/></div><h3>Long-form aware</h3><p>Timestamped transcription, smart segmentation and resumable processing for full books—not just clips.</p><span className="feature-number">01</span></article>
             <article className="feature-card feature-lilac"><span className="feature-icon"><Icon name="spark"/></span><div className="glossary-demo"><span>Character</span><strong>Miloš</strong><span>Keep as</span><strong>Miloš</strong><i><Icon name="check" size={15}/></i></div><h3>Story memory</h3><p>A shared glossary protects character names, recurring phrases and the author’s stylistic choices.</p><span className="feature-number">02</span></article>
@@ -193,23 +211,23 @@ function Landing({ session, navigate, languages }) {
         </section>
 
         <section className="trust-section">
-          <div><span className="trust-lock"><Icon name="check"/></span><div className="section-kicker light">Rights-first AI</div><h2>Creative power should come with clear consent.</h2><p>Every production workspace records content rights and narrator consent before processing. Your files stay scoped to your organization and synthetic output remains traceable.</p></div>
+          <div><span className="trust-lock"><Icon name="check"/></span><div className="section-kicker light">Rights-first AI</div><h2>Creative power should come with clear consent.</h2><p>Every project records content rights. Voice authorization is requested specifically when the chosen workflow creates synthetic narration—not when it is irrelevant.</p></div>
           <ul><li><Icon name="check"/>Explicit rights confirmation</li><li><Icon name="check"/>Narrator consent audit trail</li><li><Icon name="check"/>Private organization workspaces</li><li><Icon name="check"/>Secure object storage ready</li></ul>
         </section>
 
         <section className="pricing-section section-pad" id="pricing">
-          <div className="section-kicker">Simple credits, serious output</div><h2>Pay for localized minutes.<br/>Nothing mysterious.</h2>
+          <div className="section-kicker">Simple credits, serious output</div><h2>Pay for processed minutes.<br/>Nothing mysterious.</h2>
           <div className="pricing-grid">
-            <article><span className="plan-label">Free</span><h3>$0<small>/forever</small></h3><p>Test a real chapter before committing.</p><strong>15 localized minutes</strong><ul><li><Icon name="check"/>All languages</li><li><Icon name="check"/>Translation artifacts</li><li><Icon name="check"/>One private studio</li></ul><button className="button button-outline" onClick={() => navigate('/register')}>Start free</button></article>
-            <article className="plan-featured"><span className="popular">Most popular</span><span className="plan-label">Creator</span><h3>$29<small>/month</small></h3><p>For authors and independent producers.</p><strong>300 localized minutes / month</strong><ul><li><Icon name="check"/>Multiple target editions</li><li><Icon name="check"/>Glossary consistency</li><li><Icon name="check"/>Priority processing</li></ul><button className="button button-acid" onClick={() => navigate(session?.user ? '/app/billing' : '/register')}>Choose Creator</button></article>
-            <article><span className="plan-label">Studio</span><h3>$79<small>/month</small></h3><p>For teams shipping a global catalog.</p><strong>1,200 localized minutes / month</strong><ul><li><Icon name="check"/>Shared organization</li><li><Icon name="check"/>Larger production volume</li><li><Icon name="check"/>Billing portal access</li></ul><button className="button button-outline" onClick={() => navigate(session?.user ? '/app/billing' : '/register')}>Choose Studio</button></article>
+            <article><span className="plan-label">Free</span><h3>$0<small>/forever</small></h3><p>Test a real project before committing.</p><strong>15 processing credits</strong><ul><li><Icon name="check"/>All workflows</li><li><Icon name="check"/>Private artifacts</li><li><Icon name="check"/>One creator workspace</li></ul><button className="button button-outline" onClick={() => navigate('/register')}>Start free</button></article>
+            <article className="plan-featured"><span className="popular">Most popular</span><span className="plan-label">Creator</span><h3>$29<small>/month</small></h3><p>For authors and independent producers.</p><strong>300 processing credits / month</strong><ul><li><Icon name="check"/>All five transformations</li><li><Icon name="check"/>Glossary consistency</li><li><Icon name="check"/>Priority processing</li></ul><button className="button button-acid" onClick={() => navigate(session?.user ? '/app/billing' : '/register')}>Choose Creator</button></article>
+            <article><span className="plan-label">Studio</span><h3>$79<small>/month</small></h3><p>For teams shipping a global catalog.</p><strong>1,200 processing credits / month</strong><ul><li><Icon name="check"/>Shared organization</li><li><Icon name="check"/>Larger production volume</li><li><Icon name="check"/>Billing portal access</li></ul><button className="button button-outline" onClick={() => navigate(session?.user ? '/app/billing' : '/register')}>Choose Studio</button></article>
           </div>
           <p className="billing-note">Payments, taxes and invoices are handled securely by Lemon Squeezy, our Merchant of Record.</p>
         </section>
 
-        <section className="final-cta"><Logo compact/><h2>One story.<br/><em>Every language.</em></h2><p>Your first 15 localized minutes are on us.</p><button className="button button-acid button-large" onClick={() => navigate(session?.user ? '/app/projects/new' : '/register')}>Open your studio <Icon name="arrow"/></button></section>
+        <section className="final-cta"><Logo compact/><h2>One source.<br/><em>Many possibilities.</em></h2><p>Your first 15 processing credits are on us.</p><button className="button button-acid button-large" onClick={() => navigate(session?.user ? '/app/projects/new' : '/register')}>Open your studio <Icon name="arrow"/></button></section>
       </main>
-      <footer className="public-footer"><Logo/><p>Thoughtful AI localization for the world’s stories.</p><div>{SUPPORT_EMAIL && <a href={`mailto:${SUPPORT_EMAIL}`}>Contact</a>}<span>© 2026 AI Voice Translator</span></div></footer>
+      <footer className="public-footer"><Logo/><p>Thoughtful AI transformation for books, recordings, and the world’s stories.</p><div>{SUPPORT_EMAIL && <a href={`mailto:${SUPPORT_EMAIL}`}>Contact</a>}<span>© 2026 AI Voice Translator</span></div></footer>
     </div>
   );
 }
@@ -231,15 +249,15 @@ function AuthPage({ mode, navigate, onAuthenticated }) {
     <div className="auth-page">
       <div className="auth-brand-panel">
         <AppLink to="/" navigate={navigate}><Logo/></AppLink>
-        <div><span className="section-kicker light">Your private studio</span><h1>One voice can<br/><em>travel the world.</em></h1><p>Build faithful multilingual editions from one long-form source.</p></div>
-        <div className="auth-wave"><Waveform/><span>34 languages · one story memory</span></div>
+        <div><span className="section-kicker light">Your private studio</span><h1>One source can<br/><em>become much more.</em></h1><p>Create transcripts, translations, multilingual audio, and audiobooks from one focused workspace.</p></div>
+        <div className="auth-wave"><Waveform/><span>5 workflows · 34 languages · one story memory</span></div>
       </div>
       <div className="auth-form-panel">
         <div className="auth-mobile-logo"><AppLink to="/" navigate={navigate}><Logo/></AppLink></div>
         <form className="auth-form" onSubmit={submit}>
           <span className="auth-step">{isRegister ? 'START FREE' : 'WELCOME BACK'}</span>
           <h2>{isRegister ? 'Create your studio.' : 'Return to your stories.'}</h2>
-          <p>{isRegister ? '15 localized minutes included. No card required.' : 'Enter your account details to continue.'}</p>
+          <p>{isRegister ? '15 processing credits included. No card required.' : 'Enter your account details to continue.'}</p>
           {isRegister && <label><span>Your name</span><input autoFocus required minLength="2" maxLength="120" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="Ana Marković"/></label>}
           <label><span>Email address</span><input autoFocus={!isRegister} required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@studio.com"/></label>
           <label><span>Password</span><input required type="password" minLength="10" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="At least 10 characters"/></label>
@@ -277,10 +295,10 @@ function AppHeader({ eyebrow, title, copy, action }) {
 }
 
 function EmptyProjects({ navigate }) {
-  return <div className="empty-state"><div className="empty-visual"><span><Icon name="wave" size={30}/></span><Waveform small/></div><h3>Your first global edition starts here.</h3><p>Upload a chapter, select listeners around the world, and let the studio build the first draft.</p><button className="button button-dark" onClick={() => navigate('/app/projects/new')}><Icon name="plus"/> Create first project</button></div>;
+  return <div className="empty-state"><div className="empty-visual"><span><Icon name="spark" size={30}/></span><Waveform small/></div><h3>What should your source become?</h3><p>Choose a transcript, translation, localized audio, or complete audiobook. The project flow adapts to your answer.</p><button className="button button-dark" onClick={() => navigate('/app/projects/new')}><Icon name="plus"/> Choose a workflow</button></div>;
 }
 
-function Dashboard({ session, request, navigate, credits, refreshBilling }) {
+function Dashboard({ session, request, navigate, credits, refreshBilling, workflows }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -289,11 +307,11 @@ function Dashboard({ session, request, navigate, credits, refreshBilling }) {
   const languageCount = new Set(projects.flatMap((project) => project.target_languages)).size;
   return (
     <div className="dashboard-page page-content">
-      <AppHeader eyebrow="YOUR STUDIO" title={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${session.user.display_name.split(' ')[0]}.`} copy="Your stories are ready to travel." action={<button className="button button-dark" onClick={() => navigate('/app/projects/new')}><Icon name="plus"/> New project</button>}/>
-      <section className="stats-row"><article><span><Icon name="file"/></span><div><small>Total projects</small><strong>{projects.length}</strong></div></article><article><span><Icon name="check"/></span><div><small>Ready sources</small><strong>{ready}</strong></div></article><article><span><Icon name="globe"/></span><div><small>Target languages</small><strong>{languageCount}</strong></div></article><article className="credit-stat"><span><Icon name="credits"/></span><div><small>Localized minutes</small><strong>{credits ?? '—'}</strong></div><button onClick={() => navigate('/app/billing')}>Add more</button></article></section>
+      <AppHeader eyebrow="YOUR STUDIO" title={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${session.user.display_name.split(' ')[0]}.`} copy="Your next transcript, edition, or audiobook starts here." action={<button className="button button-dark" onClick={() => navigate('/app/projects/new')}><Icon name="plus"/> New project</button>}/>
+      <section className="stats-row"><article><span><Icon name="file"/></span><div><small>Total projects</small><strong>{projects.length}</strong></div></article><article><span><Icon name="check"/></span><div><small>Ready sources</small><strong>{ready}</strong></div></article><article><span><Icon name="globe"/></span><div><small>Target languages</small><strong>{languageCount}</strong></div></article><article className="credit-stat"><span><Icon name="credits"/></span><div><small>Processing credits</small><strong>{credits ?? '—'}</strong></div><button onClick={() => navigate('/app/billing')}>Add more</button></article></section>
       <section className="dashboard-section"><div className="section-head"><div><h2>Recent projects</h2><p>Every story and edition in one place.</p></div>{projects.length > 0 && <button className="text-button" onClick={() => navigate('/app/projects/new')}>New project <Icon name="arrow" size={16}/></button>}</div>
         {error && <div className="form-error">{error}</div>}
-        {loading ? <div className="loading-block"><span/><span/><span/></div> : projects.length === 0 ? <EmptyProjects navigate={navigate}/> : <div className="project-grid">{projects.map((project) => <button className="project-card" key={project.id} onClick={() => navigate(`/app/projects/${project.id}`)}><div className="project-card-top"><span className="project-icon"><Icon name="wave"/></span><span className={`status-pill ${statusTone(project.status)}`}>{project.status}</span></div><h3>{project.title}</h3><div className="language-route"><b>{project.source_language.toUpperCase()}</b><span/><div>{project.target_languages.slice(0, 3).map((code) => <i key={code}>{code.toUpperCase()}</i>)}{project.target_languages.length > 3 && <i>+{project.target_languages.length - 3}</i>}</div></div><footer><span><Icon name="clock" size={15}/>{formatDuration(project.duration_seconds)}</span><span>{formatDate(project.updated_at)}</span><Icon name="chevron" size={17}/></footer></button>)}</div>}
+        {loading ? <div className="loading-block"><span/><span/><span/></div> : projects.length === 0 ? <EmptyProjects navigate={navigate}/> : <div className="project-grid">{projects.map((project) => { const workflow = workflowFor(workflows, project.workflow_type); return <button className="project-card" key={project.id} onClick={() => navigate(`/app/projects/${project.id}`)}><div className="project-card-top"><span className="project-icon"><Icon name={workflow.icon}/></span><span className={`status-pill ${statusTone(project.status)}`}>{project.status}</span></div><small className="project-workflow">{workflow.short_name}</small><h3>{project.title}</h3><div className="language-route"><b>{project.source_language.toUpperCase()}</b><span/><div>{project.target_languages.length ? project.target_languages.slice(0, 3).map((code) => <i key={code}>{code.toUpperCase()}</i>) : <i>{workflow.output_kind === 'transcript' ? 'TXT' : 'AUDIO'}</i>}{project.target_languages.length > 3 && <i>+{project.target_languages.length - 3}</i>}</div></div><footer><span><Icon name="clock" size={15}/>{formatDuration(project.duration_seconds)}</span><span>{formatDate(project.updated_at)}</span><Icon name="chevron" size={17}/></footer></button>; })}</div>}
       </section>
       <section className="dashboard-callout"><div><span className="section-kicker light">A better first pass</span><h2>Localize the meaning,<br/>not just the words.</h2><p>Your studio keeps an evolving story glossary beside every edition.</p></div><div className="callout-quote"><span>“</span><p>The city never slept; it only changed its alibi.</p><small>Original tone preserved across 3 editions</small></div></section>
     </div>
@@ -307,8 +325,9 @@ function LanguagePicker({ languages, sourceLanguage, selected, setSelected }) {
   return <div className="language-picker"><div className="picker-search"><Icon name="search" size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search languages"/><span>{selected.length}/12</span></div><div className="language-options">{filtered.map((language) => <button type="button" key={language.code} className={selected.includes(language.code) ? 'selected' : ''} onClick={() => toggle(language.code)}><b>{language.code.toUpperCase()}</b><span><strong>{language.name}</strong><small>{language.native_name}</small></span>{selected.includes(language.code) && <i><Icon name="check" size={15}/></i>}</button>)}</div></div>;
 }
 
-function NewProject({ session, languages, request, navigate, refreshBilling }) {
+function NewProject({ session, languages, workflows, request, navigate, refreshBilling }) {
   const [step, setStep] = useState(1);
+  const [workflowId, setWorkflowId] = useState('audio_translate');
   const [title, setTitle] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('auto');
   const [targets, setTargets] = useState(['en']);
@@ -319,28 +338,96 @@ function NewProject({ session, languages, request, navigate, refreshBilling }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const organization = session.organizations[0];
+  const workflow = workflowFor(workflows, workflowId);
   const sourceOptions = [{ code: 'auto', name: 'Automatic detection', native_name: 'Recommended' }, ...languages];
+  const sourceIsDocument = workflow.input_kind === 'document';
+  const inputAccept = sourceIsDocument ? '.txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'audio/*,video/*,.mp3,.wav,.m4a,.flac,.aac,.ogg,.mp4,.mov,.mkv';
+
+  function selectWorkflow(nextId) {
+    if (nextId === workflowId) return;
+    setWorkflowId(nextId);
+    setFile(null);
+    setError('');
+  }
+
   async function createProject() {
     setBusy(true); setError('');
     try {
-      const created = await request('/api/projects', { method: 'POST', body: { organization_id: organization.id, title, source_language: sourceLanguage, target_languages: targets, rights_confirmed: rights, voice_consent_confirmed: consent, speaker_name: speaker } });
-      const form = new FormData(); form.append('file', file);
+      const created = await request('/api/projects', {
+        method: 'POST',
+        body: {
+          organization_id: organization.id,
+          workflow_type: workflow.id,
+          title,
+          source_language: sourceLanguage,
+          target_languages: workflow.requires_targets ? targets : [],
+          rights_confirmed: rights,
+          voice_consent_confirmed: workflow.requires_voice_consent ? consent : false,
+          speaker_name: speaker,
+        },
+      });
+      const form = new FormData();
+      form.append('file', file);
       await request(`/api/projects/${created.project.id}/source`, { method: 'POST', body: form });
-      refreshBilling(); navigate(`/app/projects/${created.project.id}`);
-    } catch (requestError) { setError(requestError.message); setBusy(false); }
+      refreshBilling();
+      navigate(`/app/projects/${created.project.id}`);
+    } catch (requestError) {
+      setError(requestError.message);
+      setBusy(false);
+    }
   }
-  const canContinue = step === 1 ? title.trim().length >= 2 && file : step === 2 ? targets.length > 0 && !(sourceLanguage !== 'auto' && targets.includes(sourceLanguage)) : rights && consent && speaker.trim();
+
+  const sourceReady = title.trim().length >= 2 && file && !(workflow.id === 'document_narrate' && sourceLanguage === 'auto');
+  const targetsReady = !workflow.requires_targets || (targets.length > 0 && !(sourceLanguage !== 'auto' && targets.includes(sourceLanguage)));
+  const consentReady = rights && (!workflow.requires_voice_consent || (consent && speaker.trim()));
+  const canContinue = step === 1 ? Boolean(workflow) : step === 2 ? sourceReady : step === 3 ? targetsReady : consentReady;
+  const steps = [['Transformation', 1], ['Source', 2], ['Outputs', 3], ['Rights', 4]];
+
   return (
     <div className="wizard-page page-content">
       <button className="back-link" onClick={() => navigate('/app')}><Icon name="back" size={17}/> Back to studio</button>
       <div className="wizard-layout">
-        <aside className="wizard-side"><span className="section-kicker light">NEW LOCALIZATION</span><h1>Take your story<br/><em>somewhere new.</em></h1><p>We’ll build one source transcript and a separate edition for every listener group you choose.</p><div className="wizard-progress">{[['Story & source', 1], ['Audience', 2], ['Rights & consent', 3]].map(([label, number]) => <div key={number} className={step === number ? 'active' : step > number ? 'done' : ''}><span>{step > number ? <Icon name="check" size={15}/> : number}</span><strong>{label}</strong></div>)}</div><div className="wizard-tip"><Icon name="spark"/><span><strong>Credit math</strong>1 credit = 1 source minute × 1 target language.</span></div></aside>
+        <aside className="wizard-side">
+          <span className="section-kicker light">NEW PROJECT</span>
+          <h1>Your source.<br/><em>Your outcome.</em></h1>
+          <p>Choose exactly what you want to create. The studio adapts its source, language, consent, and output steps around that goal.</p>
+          <div className="wizard-progress">{steps.map(([label, number]) => <div key={number} className={step === number ? 'active' : step > number ? 'done' : ''}><span>{step > number ? <Icon name="check" size={15}/> : number}</span><strong>{label}</strong></div>)}</div>
+          <div className="wizard-tip"><Icon name={workflow.icon}/><span><strong>{workflow.short_name}</strong>{workflow.requires_targets ? 'Credits scale by source minutes and target languages.' : 'Credits scale by the source duration.'}</span></div>
+        </aside>
         <section className="wizard-card">
-          {step === 1 && <><span className="form-step">STEP 1 OF 3</span><h2>What are we localizing?</h2><p>Give the project a clear name and bring the original recording.</p><label className="field"><span>Project title</span><input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. The Midnight Train" maxLength="240"/></label><label className="field"><span>Source language</span><select value={sourceLanguage} onChange={(e) => setSourceLanguage(e.target.value)}>{sourceOptions.map((language) => <option key={language.code} value={language.code}>{language.name} — {language.native_name}</option>)}</select></label><label className={`upload-zone ${file ? 'has-file' : ''}`}><input type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.aac,.ogg,.mp4,.mov,.mkv" onChange={(e) => setFile(e.target.files?.[0] || null)}/>{file ? <><span className="upload-icon"><Icon name="file"/></span><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · ready to upload</small></div><i><Icon name="check"/></i></> : <><span className="upload-icon"><Icon name="upload"/></span><div><strong>Drop your recording here</strong><small>MP3, WAV, M4A, FLAC, AAC or video · up to 2 GB</small></div><b>Browse file</b></>}</label></>}
-          {step === 2 && <><span className="form-step">STEP 2 OF 3</span><h2>Who should hear it?</h2><p>Select up to 12 target languages. Each one becomes its own editable edition.</p><LanguagePicker languages={languages} sourceLanguage={sourceLanguage} selected={targets} setSelected={setTargets}/>{sourceLanguage !== 'auto' && targets.includes(sourceLanguage) && <div className="form-error">Source and target languages must be different.</div>}</>}
-          {step === 3 && <><span className="form-step">STEP 3 OF 3</span><h2>Protect the people behind the story.</h2><p>These confirmations create an auditable record for responsible localization and future synthetic voice work.</p><label className="field"><span>Narrator / rights holder</span><input value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="Full name or role"/></label><label className={`consent-card ${rights ? 'checked' : ''}`}><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)}/><span><Icon name="check" size={15}/></span><div><strong>I have the necessary content rights.</strong><small>I own this work or have permission to transcribe, translate and create localized editions.</small></div></label><label className={`consent-card ${consent ? 'checked' : ''}`}><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}/><span><Icon name="check" size={15}/></span><div><strong>The narrator has consented.</strong><small>The speaker has authorized this use of their performance and any future synthetic voice processing.</small></div></label><div className="summary-card"><div><small>Project</small><strong>{title}</strong></div><div><small>Route</small><strong>{sourceLanguage.toUpperCase()} → {targets.map((code) => code.toUpperCase()).join(', ')}</strong></div><div><small>File</small><strong>{file?.name}</strong></div></div></>}
+          {step === 1 && <>
+            <span className="form-step">STEP 1 OF 4</span>
+            <h2>What do you want to make?</h2>
+            <p>Pick the transformation first. We’ll only ask for the settings that matter to that result.</p>
+            <div className="workflow-choice-grid">{workflows.map((option) => <button type="button" key={option.id} className={workflowId === option.id ? 'selected' : ''} onClick={() => selectWorkflow(option.id)}><span className="workflow-choice-icon"><Icon name={option.icon}/></span><div><strong>{option.name}</strong><small>{option.short_name}</small><p>{option.description}</p></div><i className={option.available ? 'ready' : 'setup'}>{option.available ? 'Ready' : 'Setup needed'}</i>{workflowId === option.id && <b><Icon name="check" size={14}/></b>}</button>)}</div>
+          </>}
+          {step === 2 && <>
+            <span className="form-step">STEP 2 OF 4</span>
+            <h2>Bring the {sourceIsDocument ? 'manuscript' : 'recording'}.</h2>
+            <p>{sourceIsDocument ? 'Upload a readable manuscript and identify its language.' : 'Upload the audio or video source. We can detect its spoken language automatically.'}</p>
+            <label className="field"><span>Project title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={sourceIsDocument ? 'e.g. The Midnight Train manuscript' : 'e.g. The Midnight Train recording'} maxLength="240"/></label>
+            <label className="field"><span>Source language</span><select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{sourceOptions.map((language) => <option key={language.code} value={language.code}>{language.name} — {language.native_name}</option>)}</select></label>
+            {workflow.id === 'document_narrate' && sourceLanguage === 'auto' && <div className="field-note"><Icon name="spark" size={16}/> Choose the manuscript language so the narrator pronounces it correctly.</div>}
+            <label className={`upload-zone ${file ? 'has-file' : ''}`}><input type="file" accept={inputAccept} onChange={(event) => setFile(event.target.files?.[0] || null)}/>{file ? <><span className="upload-icon"><Icon name="file"/></span><div><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · ready to upload</small></div><i><Icon name="check"/></i></> : <><span className="upload-icon"><Icon name="upload"/></span><div><strong>Drop your {sourceIsDocument ? 'manuscript' : 'recording'} here</strong><small>{sourceIsDocument ? 'TXT, Markdown or DOCX' : 'MP3, WAV, M4A, FLAC, AAC, OGG or video'} · up to 2 GB</small></div><b>Browse file</b></>}</label>
+          </>}
+          {step === 3 && <>
+            <span className="form-step">STEP 3 OF 4</span>
+            <h2>{workflow.requires_targets ? 'Which languages should we create?' : 'Your output is already defined.'}</h2>
+            <p>{workflow.requires_targets ? 'Select up to 12 target languages. Each becomes its own isolated deliverable.' : `${workflow.name} creates one ${workflow.output_kind === 'transcript' ? 'timestamped transcript' : 'narrated audio edition'} from your source.`}</p>
+            {workflow.requires_targets ? <><LanguagePicker languages={languages} sourceLanguage={sourceLanguage} selected={targets} setSelected={setTargets}/>{sourceLanguage !== 'auto' && targets.includes(sourceLanguage) && <div className="form-error">Source and target languages must be different.</div>}</> : <div className="defined-output"><span><Icon name={workflow.icon} size={28}/></span><div><small>SELECTED TRANSFORMATION</small><h3>{workflow.short_name}</h3><p>{workflow.description}</p></div><i><Icon name="check" size={18}/></i></div>}
+          </>}
+          {step === 4 && <>
+            <span className="form-step">STEP 4 OF 4</span>
+            <h2>Confirm responsible use.</h2>
+            <p>We keep a clear record of content rights{workflow.requires_voice_consent ? ' and permission for synthetic narration' : ''} before processing begins.</p>
+            {workflow.requires_voice_consent && <label className="field"><span>Narrator / authorized voice</span><input value={speaker} onChange={(event) => setSpeaker(event.target.value)} placeholder="Full name, licensed voice, or role"/></label>}
+            <label className={`consent-card ${rights ? 'checked' : ''}`}><input type="checkbox" checked={rights} onChange={(event) => setRights(event.target.checked)}/><span><Icon name="check" size={15}/></span><div><strong>I have the necessary content rights.</strong><small>I own this work or have permission to process and create the selected output.</small></div></label>
+            {workflow.requires_voice_consent && <label className={`consent-card ${consent ? 'checked' : ''}`}><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/><span><Icon name="check" size={15}/></span><div><strong>The voice use is authorized.</strong><small>The speaker or licensed voice owner has authorized synthetic narration for this project.</small></div></label>}
+            {!workflow.available && <div className="provider-note"><Icon name="spark"/><div><strong>Voice provider setup required</strong><small>You can create this project now. Connect ElevenLabs credentials before starting production.</small></div></div>}
+            <div className="summary-card"><div><small>Transformation</small><strong>{workflow.short_name}</strong></div><div><small>Route</small><strong>{sourceLanguage.toUpperCase()}{workflow.requires_targets ? ` → ${targets.map((code) => code.toUpperCase()).join(', ')}` : ''}</strong></div><div><small>Source</small><strong>{file?.name}</strong></div></div>
+          </>}
           {error && <div className="form-error">{error}</div>}
-          <footer className="wizard-actions">{step > 1 ? <button className="button button-ghost" onClick={() => setStep(step - 1)} disabled={busy}><Icon name="back" size={17}/> Back</button> : <span/>}<button className="button button-dark" disabled={!canContinue || busy} onClick={() => step < 3 ? setStep(step + 1) : createProject()}>{busy ? 'Creating studio…' : step < 3 ? 'Continue' : 'Create project'} {!busy && <Icon name="arrow" size={18}/>}</button></footer>
+          <footer className="wizard-actions">{step > 1 ? <button className="button button-ghost" onClick={() => { setError(''); setStep(step - 1); }} disabled={busy}><Icon name="back" size={17}/> Back</button> : <span/>}<button className="button button-dark" disabled={!canContinue || busy} onClick={() => step < 4 ? setStep(step + 1) : createProject()}>{busy ? 'Creating project…' : step < 4 ? 'Continue' : 'Create project'} {!busy && <Icon name="arrow" size={18}/>}</button></footer>
         </section>
       </div>
     </div>
@@ -359,16 +446,30 @@ function ProjectStudio({ projectId, request, navigate, refreshBilling }) {
   async function startJob(mode) { setBusyMode(mode); setError(''); try { await request(`/api/projects/${projectId}/jobs`, { method: 'POST', headers: { 'Idempotency-Key': `${projectId}-${mode}-${Date.now()}` }, body: { mode } }); await load(); refreshBilling(); } catch (requestError) { setError(requestError.message); } finally { setBusyMode(''); } }
   if (!detail) return <div className="page-content"><div className="loading-block tall"><span/><span/><span/></div>{error && <div className="form-error">{error}</div>}</div>;
   const { project, artifacts = [], jobs = [] } = detail;
+  const workflow = detail.workflow || workflowFor(FALLBACK_WORKFLOWS, project.workflow_type);
   const resultArtifacts = artifacts.filter((artifact) => artifact.kind !== 'source');
+  const sourceIsDocument = workflow.input_kind === 'document';
+  const activeJob = ['queued', 'running', 'retrying'].includes(latestJob?.status);
+  const runDisabled = busyMode || activeJob || !workflow.available;
+  const packageLanguages = project.target_languages.length ? project.target_languages : [project.source_language];
+  const previewLabel = sourceIsDocument ? 'Sample preview' : 'Chapter preview';
+  const fullLabel = workflow.id === 'audio_transcribe' ? 'Full transcription' : workflow.id === 'document_narrate' ? 'Full audiobook' : workflow.id === 'audio_dub' ? 'Full multilingual audio' : workflow.requires_targets ? 'Full translation' : 'Full production';
+  const outputDescription = workflow.id === 'audio_transcribe' ? 'timestamped transcript' : workflow.id === 'document_narrate' ? 'narrated audio edition' : workflow.id === 'audio_dub' ? 'translated text and narrated audio' : 'structured translation package';
   return (
     <div className="studio-page page-content">
       <button className="back-link" onClick={() => navigate('/app')}><Icon name="back" size={17}/> All projects</button>
-      <header className="studio-header"><div className="studio-title-icon"><Icon name="wave" size={28}/></div><div><div className="studio-title-line"><h1>{project.title}</h1><span className={`status-pill ${statusTone(project.status)}`}>{project.status}</span></div><p><span>{project.source_language.toUpperCase()}</span><b>→</b>{project.target_languages.map((code) => <i key={code}>{code.toUpperCase()}</i>)} · {formatDuration(project.duration_seconds)}</p></div><button className="button button-dark" disabled={busyMode || ['queued', 'running'].includes(latestJob?.status)} onClick={() => startJob('preview')}><Icon name="play" size={17}/>{busyMode === 'preview' ? 'Starting…' : 'Run preview'}</button></header>
+      <header className="studio-header"><div className="studio-title-icon"><Icon name={workflow.icon} size={28}/></div><div><div className="studio-title-line"><h1>{project.title}</h1><span className={`status-pill ${statusTone(project.status)}`}>{project.status}</span></div><small className="studio-workflow">{workflow.short_name}</small><p><span>{project.source_language.toUpperCase()}</span>{project.target_languages.length > 0 && <><b>→</b>{project.target_languages.map((code) => <i key={code}>{code.toUpperCase()}</i>)}</>} · {formatDuration(project.duration_seconds)}</p></div><button className="button button-dark" disabled={runDisabled} onClick={() => startJob('preview')}><Icon name="play" size={17}/>{busyMode === 'preview' ? 'Starting…' : 'Run preview'}</button></header>
       {error && <div className="form-error studio-error">{error}</div>}
+      {!workflow.available && <div className="availability-banner"><Icon name="spark"/><div><strong>{workflow.availability_note}</strong><small>Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID to enable production for this project.</small></div></div>}
       <nav className="studio-tabs">{[['overview', 'Overview'], ['outputs', `Outputs (${resultArtifacts.length})`], ['activity', `Activity (${jobs.length})`]].map(([key, label]) => <button className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
-      {tab === 'overview' && <div className="studio-overview-grid"><section className="studio-panel source-panel"><div className="panel-head"><div><span className="section-kicker">SOURCE</span><h2>Original recording</h2></div><span className="source-ready"><Icon name="check" size={15}/> secured</span></div>{artifacts.filter((a) => a.kind === 'source').map((artifact) => <div className="source-file" key={artifact.id}><span><Icon name="file"/></span><div><strong>{artifact.original_filename}</strong><small>{(artifact.size_bytes / 1024 / 1024).toFixed(1)} MB · {project.source_language === 'auto' ? 'auto-detect language' : project.source_language.toUpperCase()}</small></div></div>)}<Waveform/><div className="consent-summary"><span><Icon name="check" size={15}/></span><div><strong>Rights and narrator consent recorded</strong><small>This project is cleared for its configured localization workflow.</small></div></div></section><section className="studio-panel production-panel"><div className="panel-head"><div><span className="section-kicker">PRODUCTION</span><h2>Create localized editions</h2></div></div><div className="production-options"><button disabled={busyMode || ['queued', 'running'].includes(latestJob?.status)} onClick={() => startJob('preview')}><span><Icon name="play"/></span><div><strong>Chapter preview</strong><small>First {Math.min(5, Math.ceil((project.duration_seconds || 300) / 60))} minutes × {project.target_languages.length} languages</small></div><Icon name="chevron"/></button><button disabled={busyMode || ['queued', 'running'].includes(latestJob?.status)} onClick={() => startJob('full')}><span><Icon name="spark"/></span><div><strong>Full translation</strong><small>{formatDuration(project.duration_seconds)} × {project.target_languages.length} target editions</small></div><Icon name="chevron"/></button></div><p className="production-note"><Icon name="credits" size={16}/> Credits are reserved when a job starts and returned automatically if it fails.</p></section>{latestJob && <section className="studio-panel current-job"><div className="panel-head"><div><span className="section-kicker">LATEST JOB</span><h2>{latestJob.mode === 'preview' ? 'Chapter preview' : 'Full translation'}</h2></div><span className={`status-pill ${statusTone(latestJob.status)}`}>{latestJob.status}</span></div><div className="job-progress"><div><span>{latestJob.stage}</span><strong>{latestJob.progress_percent}%</strong></div><span><i style={{ width: `${latestJob.progress_percent}%` }}/></span></div>{latestJob.error && <div className="form-error">{latestJob.error}</div>}<div className="job-meta"><span>Created {formatDate(latestJob.created_at)}</span><span>{latestJob.finished_at ? `Finished ${formatDate(latestJob.finished_at)}` : 'Safe to leave this page'}</span></div></section>}<section className="studio-panel edition-panel"><div className="panel-head"><div><span className="section-kicker">EDITIONS</span><h2>Target package</h2></div><button className="text-button" onClick={() => setTab('outputs')}>View outputs <Icon name="arrow" size={15}/></button></div><div className="edition-list">{project.target_languages.map((code) => { const outputs = resultArtifacts.filter((a) => a.language === code); return <div key={code}><b>{code.toUpperCase()}</b><span><strong>{code}</strong><small>{outputs.length ? `${outputs.length} assets ready` : 'Waiting for production'}</small></span>{outputs.length ? <i className="ready"><Icon name="check" size={14}/></i> : <i/>}</div>; })}</div></section></div>}
-      {tab === 'outputs' && <section className="outputs-panel"><div className="section-head"><div><h2>Production outputs</h2><p>Download timestamped transcripts, glossaries and translated editions.</p></div></div>{resultArtifacts.length === 0 ? <div className="empty-state compact"><span className="empty-visual"><Icon name="download" size={28}/></span><h3>No outputs yet.</h3><p>Run a chapter preview to create the first multilingual package.</p></div> : <div className="artifact-table"><div className="artifact-row artifact-head"><span>Asset</span><span>Language</span><span>Size</span><span>Created</span><span/></div>{resultArtifacts.map((artifact) => <div className="artifact-row" key={artifact.id}><span><i><Icon name="file" size={18}/></i><strong>{artifact.kind}</strong><small>{artifact.original_filename}</small></span><span><b>{(artifact.language || '—').toUpperCase()}</b></span><span>{Math.max(1, Math.round(artifact.size_bytes / 1024))} KB</span><span>{formatDate(artifact.created_at)}</span><a href={`/api/projects/${project.id}/artifacts/${artifact.id}/download`}><Icon name="download" size={17}/> Download</a></div>)}</div>}</section>}
-      {tab === 'activity' && <section className="activity-panel"><div className="section-head"><div><h2>Project activity</h2><p>A traceable history of production attempts.</p></div></div>{jobs.length === 0 ? <div className="empty-state compact"><h3>No jobs started yet.</h3></div> : <div className="activity-list">{jobs.map((job) => <div key={job.id}><span className={`activity-dot ${statusTone(job.status)}`}/><div><strong>{job.mode === 'preview' ? 'Chapter preview' : 'Full translation'}</strong><small>{job.stage} · {job.progress_percent}%</small></div><span className={`status-pill ${statusTone(job.status)}`}>{job.status}</span><time>{formatDate(job.created_at)}</time></div>)}</div>}</section>}
+      {tab === 'overview' && <div className="studio-overview-grid">
+        <section className="studio-panel source-panel"><div className="panel-head"><div><span className="section-kicker">SOURCE</span><h2>Original {sourceIsDocument ? 'manuscript' : 'recording'}</h2></div><span className="source-ready"><Icon name="check" size={15}/> secured</span></div>{artifacts.filter((artifact) => artifact.kind === 'source').map((artifact) => <div className="source-file" key={artifact.id}><span><Icon name="file"/></span><div><strong>{artifact.original_filename}</strong><small>{(artifact.size_bytes / 1024 / 1024).toFixed(1)} MB · {project.source_language === 'auto' ? 'auto-detect language' : project.source_language.toUpperCase()}{artifact.metadata?.word_count ? ` · ${artifact.metadata.word_count.toLocaleString()} words` : ''}</small></div></div>)}{sourceIsDocument ? <div className="document-lines"><span/><span/><span/><span/><span/></div> : <Waveform/>}<div className="consent-summary"><span><Icon name="check" size={15}/></span><div><strong>{workflow.requires_voice_consent ? 'Rights and voice authorization recorded' : 'Content rights recorded'}</strong><small>This source is cleared for {workflow.name.toLowerCase()}.</small></div></div></section>
+        <section className="studio-panel production-panel"><div className="panel-head"><div><span className="section-kicker">PRODUCTION</span><h2>{workflow.name}</h2></div></div><div className="production-options"><button disabled={runDisabled} onClick={() => startJob('preview')}><span><Icon name="play"/></span><div><strong>{previewLabel}</strong><small>Process the first {Math.min(5, Math.ceil((project.duration_seconds || 300) / 60))} minutes{workflow.requires_targets ? ` × ${project.target_languages.length} languages` : ''}</small></div><Icon name="chevron"/></button><button disabled={runDisabled} onClick={() => startJob('full')}><span><Icon name="spark"/></span><div><strong>{fullLabel}</strong><small>{formatDuration(project.duration_seconds)}{workflow.requires_targets ? ` × ${project.target_languages.length} target editions` : ` · one ${outputDescription}`}</small></div><Icon name="chevron"/></button></div><p className="production-note"><Icon name="credits" size={16}/> Credits are reserved when a job starts and returned automatically if it fails.</p></section>
+        {latestJob && <section className="studio-panel current-job"><div className="panel-head"><div><span className="section-kicker">LATEST JOB</span><h2>{latestJob.mode === 'preview' ? previewLabel : fullLabel}</h2></div><span className={`status-pill ${statusTone(latestJob.status)}`}>{latestJob.status}</span></div><div className="job-progress"><div><span>{latestJob.stage}</span><strong>{latestJob.progress_percent}%</strong></div><span><i style={{ width: `${latestJob.progress_percent}%` }}/></span></div>{latestJob.error && <div className="form-error">{latestJob.error}</div>}<div className="job-meta"><span>Created {formatDate(latestJob.created_at)}</span><span>{latestJob.finished_at ? `Finished ${formatDate(latestJob.finished_at)}` : 'Safe to leave this page'}</span></div></section>}
+        <section className="studio-panel edition-panel"><div className="panel-head"><div><span className="section-kicker">DELIVERABLES</span><h2>{workflow.requires_targets ? 'Edition package' : 'Output package'}</h2></div><button className="text-button" onClick={() => setTab('outputs')}>View outputs <Icon name="arrow" size={15}/></button></div><div className="edition-list">{packageLanguages.map((code) => { const outputs = resultArtifacts.filter((artifact) => artifact.language === code || packageLanguages.length === 1); return <div key={code}><b>{code === 'auto' ? 'SRC' : code.toUpperCase()}</b><span><strong>{workflow.output_kind.replaceAll('_', ' ')}</strong><small>{outputs.length ? `${outputs.length} assets ready` : 'Waiting for production'}</small></span>{outputs.length ? <i className="ready"><Icon name="check" size={14}/></i> : <i/>}</div>; })}</div></section>
+      </div>}
+      {tab === 'outputs' && <section className="outputs-panel"><div className="section-head"><div><h2>Production outputs</h2><p>Download every private asset created by the selected {workflow.short_name.toLowerCase()} workflow.</p></div></div>{resultArtifacts.length === 0 ? <div className="empty-state compact"><span className="empty-visual"><Icon name="download" size={28}/></span><h3>No outputs yet.</h3><p>Run a preview to create the first {outputDescription}.</p></div> : <div className="artifact-table"><div className="artifact-row artifact-head"><span>Asset</span><span>Language</span><span>Size</span><span>Created</span><span/></div>{resultArtifacts.map((artifact) => <div className="artifact-row" key={artifact.id}><span><i><Icon name={artifact.kind === 'audio' ? 'play' : 'file'} size={18}/></i><strong>{artifact.kind.replaceAll('_', ' ')}</strong><small>{artifact.original_filename}</small></span><span><b>{(artifact.language || '—').toUpperCase()}</b></span><span>{Math.max(1, Math.round(artifact.size_bytes / 1024))} KB</span><span>{formatDate(artifact.created_at)}</span><a href={`/api/projects/${project.id}/artifacts/${artifact.id}/download`}><Icon name="download" size={17}/> Download</a></div>)}</div>}</section>}
+      {tab === 'activity' && <section className="activity-panel"><div className="section-head"><div><h2>Project activity</h2><p>A traceable history of every production attempt.</p></div></div>{jobs.length === 0 ? <div className="empty-state compact"><h3>No jobs started yet.</h3></div> : <div className="activity-list">{jobs.map((job) => <div key={job.id}><span className={`activity-dot ${statusTone(job.status)}`}/><div><strong>{job.mode === 'preview' ? previewLabel : fullLabel}</strong><small>{job.stage} · {job.progress_percent}%</small></div><span className={`status-pill ${statusTone(job.status)}`}>{job.status}</span><time>{formatDate(job.created_at)}</time></div>)}</div>}</section>}
     </div>
   );
 }
@@ -380,7 +481,18 @@ function Billing({ session, request, navigate, billing, refreshBilling }) {
   useEffect(() => { refreshBilling(); }, [refreshBilling]);
   async function checkout(planKey) { setBusy(planKey); setError(''); try { const data = await request('/api/billing/checkout', { method: 'POST', body: { organization_id: organization.id, plan_key: planKey } }); window.location.assign(data.checkout_url); } catch (err) { setError(err.message); setBusy(''); } }
   async function portal() { setBusy('portal'); setError(''); try { const data = await request('/api/billing/portal', { method: 'POST', body: { organization_id: organization.id } }); window.location.assign(data.portal_url); } catch (err) { setError(err.message); setBusy(''); } }
-  return <div className="billing-page page-content"><AppHeader eyebrow="PLANS & CREDITS" title="Grow your global catalog." copy="One credit covers one source minute in one target language." action={<button className="button button-ghost" onClick={() => navigate('/app')}><Icon name="back" size={17}/> Overview</button>}/>{error && <div className="form-error studio-error">{error}</div>}<section className="billing-balance"><div><span><Icon name="credits" size={26}/></span><div><small>Available balance</small><strong>{billing?.credit_balance ?? '—'} <i>localized minutes</i></strong></div></div>{billing?.subscription ? <div><span className="status-pill positive">{billing.subscription.status}</span><strong>{billing.subscription.plan_key} plan</strong><button className="text-button" disabled={busy} onClick={portal}>Manage billing <Icon name="arrow" size={15}/></button></div> : <div><span className="status-pill neutral">free</span><strong>Starter studio</strong><small>No card on file</small></div>}</section><div className="billing-plan-grid"><article><span className="plan-label">Creator</span><h2>$29<small>/month</small></h2><p>For authors, podcasters and solo producers shipping consistently.</p><strong>300 localized minutes</strong><ul><li><Icon name="check"/>All 34 languages</li><li><Icon name="check"/>One-to-many processing</li><li><Icon name="check"/>Private artifacts</li><li><Icon name="check"/>Story glossary</li></ul><button className="button button-dark button-full" disabled={busy || Boolean(billing?.subscription) || !billing?.checkout_configured} onClick={() => checkout('creator')}>{busy === 'creator' ? 'Opening checkout…' : billing?.subscription ? 'Current subscription active' : billing?.checkout_configured ? 'Choose Creator' : 'Checkout setup required'}</button></article><article className="studio-plan"><span className="popular">BEST VALUE</span><span className="plan-label">Studio</span><h2>$79<small>/month</small></h2><p>For production teams managing a multilingual publishing calendar.</p><strong>1,200 localized minutes</strong><ul><li><Icon name="check"/>Everything in Creator</li><li><Icon name="check"/>4× monthly volume</li><li><Icon name="check"/>Organization workspace</li><li><Icon name="check"/>Priority queue ready</li></ul><button className="button button-acid button-full" disabled={busy || Boolean(billing?.subscription) || !billing?.checkout_configured} onClick={() => checkout('studio')}>{busy === 'studio' ? 'Opening checkout…' : billing?.subscription ? 'Manage your current plan' : billing?.checkout_configured ? 'Choose Studio' : 'Checkout setup required'}</button></article></div><section className="billing-faq"><div><h3>How credits work</h3><p>A 10-minute chapter localized into English, German and Spanish uses 30 credits. Transcription is reused across languages.</p></div><div><h3>What if a job fails?</h3><p>Reserved credits return automatically. You only spend credits on a successfully delivered production job.</p></div><div><h3>Who handles payment?</h3><p>Lemon Squeezy acts as Merchant of Record and handles checkout, tax calculation, invoices and the customer portal.</p></div></section></div>;
+  return (
+    <div className="billing-page page-content">
+      <AppHeader eyebrow="PLANS & CREDITS" title="Create without hitting a ceiling." copy="Single-output workflows use one credit per source minute; multilingual workflows use one per target-language minute." action={<button className="button button-ghost" onClick={() => navigate('/app')}><Icon name="back" size={17}/> Overview</button>}/>
+      {error && <div className="form-error studio-error">{error}</div>}
+      <section className="billing-balance"><div><span><Icon name="credits" size={26}/></span><div><small>Available balance</small><strong>{billing?.credit_balance ?? '—'} <i>processing credits</i></strong></div></div>{billing?.subscription ? <div><span className="status-pill positive">{billing.subscription.status}</span><strong>{billing.subscription.plan_key} plan</strong><button className="text-button" disabled={busy} onClick={portal}>Manage billing <Icon name="arrow" size={15}/></button></div> : <div><span className="status-pill neutral">free</span><strong>Starter studio</strong><small>No card on file</small></div>}</section>
+      <div className="billing-plan-grid">
+        <article><span className="plan-label">Creator</span><h2>$29<small>/month</small></h2><p>For authors, podcasters and solo producers shipping consistently.</p><strong>300 processing credits</strong><ul><li><Icon name="check"/>All five workflows</li><li><Icon name="check"/>All 34 languages</li><li><Icon name="check"/>Private artifacts</li><li><Icon name="check"/>Story glossary</li></ul><button className="button button-dark button-full" disabled={busy || Boolean(billing?.subscription) || !billing?.checkout_configured} onClick={() => checkout('creator')}>{busy === 'creator' ? 'Opening checkout…' : billing?.subscription ? 'Current subscription active' : billing?.checkout_configured ? 'Choose Creator' : 'Checkout setup required'}</button></article>
+        <article className="studio-plan"><span className="popular">BEST VALUE</span><span className="plan-label">Studio</span><h2>$79<small>/month</small></h2><p>For production teams managing a multilingual publishing calendar.</p><strong>1,200 processing credits</strong><ul><li><Icon name="check"/>Everything in Creator</li><li><Icon name="check"/>4× monthly volume</li><li><Icon name="check"/>Organization workspace</li><li><Icon name="check"/>Priority queue ready</li></ul><button className="button button-acid button-full" disabled={busy || Boolean(billing?.subscription) || !billing?.checkout_configured} onClick={() => checkout('studio')}>{busy === 'studio' ? 'Opening checkout…' : billing?.subscription ? 'Manage your current plan' : billing?.checkout_configured ? 'Choose Studio' : 'Checkout setup required'}</button></article>
+      </div>
+      <section className="billing-faq"><div><h3>How credits work</h3><p>A 10-minute transcription uses 10 credits. The same chapter translated into three languages uses 30 because transcription is reused across targets.</p></div><div><h3>What if a job fails?</h3><p>Reserved credits return automatically. You only spend credits on a successfully delivered production job.</p></div><div><h3>Who handles payment?</h3><p>Lemon Squeezy acts as Merchant of Record and handles checkout, tax calculation, invoices and the customer portal.</p></div></section>
+    </div>
+  );
 }
 
 export default function App() {
@@ -388,11 +500,12 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [languages, setLanguages] = useState(FALLBACK_LANGUAGES);
+  const [workflows, setWorkflows] = useState(FALLBACK_WORKFLOWS);
   const [billing, setBilling] = useState(null);
 
   const navigate = useCallback((to) => { window.history.pushState({}, '', to); setPath(to); window.scrollTo({ top: 0, behavior: 'smooth' }); }, []);
   useEffect(() => { const handler = () => setPath(window.location.pathname); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
-  useEffect(() => { Promise.all([fetch('/api/auth/me').then(parseResponse), fetch('/api/languages').then(parseResponse)]).then(([auth, languageData]) => { setSession(auth.user ? auth : null); if (languageData.languages?.length) setLanguages(languageData.languages); }).finally(() => setLoading(false)); }, []);
+  useEffect(() => { Promise.all([fetch('/api/auth/me').then(parseResponse), fetch('/api/languages').then(parseResponse), fetch('/api/workflows').then(parseResponse)]).then(([auth, languageData, workflowData]) => { setSession(auth.user ? auth : null); if (languageData.languages?.length) setLanguages(languageData.languages); if (workflowData.workflows?.length) setWorkflows(workflowData.workflows); }).finally(() => setLoading(false)); }, []);
 
   const request = useCallback(async (url, options = {}) => {
     const headers = { ...(options.headers || {}) };
@@ -416,10 +529,10 @@ export default function App() {
   if (!session) return <AuthPage mode="login" navigate={navigate} onAuthenticated={setSession}/>;
 
   let active = 'dashboard'; let content;
-  if (path === '/app/projects/new') { active = 'projects'; content = <NewProject session={session} languages={languages} request={request} navigate={navigate} refreshBilling={refreshBilling}/>; }
+  if (path === '/app/projects/new') { active = 'projects'; content = <NewProject session={session} languages={languages} workflows={workflows} request={request} navigate={navigate} refreshBilling={refreshBilling}/>; }
   else if (path === '/app/billing') { active = 'billing'; content = <Billing session={session} request={request} navigate={navigate} billing={billing} refreshBilling={refreshBilling}/>; }
   else if (/^\/app\/projects\/[^/]+$/.test(path)) { active = 'dashboard'; content = <ProjectStudio projectId={path.split('/').pop()} request={request} navigate={navigate} refreshBilling={refreshBilling}/>; }
-  else content = <Dashboard session={session} request={request} navigate={navigate} credits={billing?.credit_balance} refreshBilling={refreshBilling}/>;
+  else content = <Dashboard session={session} request={request} navigate={navigate} credits={billing?.credit_balance} refreshBilling={refreshBilling} workflows={workflows}/>;
   return <AppShell session={session} navigate={navigate} active={active} onLogout={logout} credits={billing?.credit_balance}>{content}</AppShell>;
 }
 

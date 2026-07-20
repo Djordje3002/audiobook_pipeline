@@ -16,10 +16,12 @@ from saas.storage import get_storage
 from saas.tasks import dispatch_pipeline_job
 from modules.languages import normalize_language_code
 from modules.audio_ingestion import probe_media_duration
+from modules.document_ingestion import DOCUMENT_SUFFIXES, estimate_narration_seconds, extract_document_text, manuscript_word_count
 from saas.billing import InsufficientCreditsError, release_job_credits, reserve_job_credits
+from saas.workflows import get_workflow, workflow_with_availability
 
 projects_api = Blueprint("projects_api", __name__, url_prefix="/api/projects")
-ALLOWED_SOURCE_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg", ".mp4", ".mov", ".mkv"}
+ALLOWED_AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg", ".mp4", ".mov", ".mkv"}
 
 
 def _slug(value: str) -> str:
@@ -39,7 +41,7 @@ def _project_for_user(project_id: str, user_id: str) -> Project | None:
 
 
 def _target_languages(raw_value) -> list[str]:
-    values = raw_value if isinstance(raw_value, list) else [raw_value]
+    values = raw_value if isinstance(raw_value, list) else ([] if raw_value is None else [raw_value])
     normalized: list[str] = []
     for value in values:
         code = normalize_language_code(value)
@@ -74,8 +76,9 @@ def create_project():
     title = str(payload.get("title", "")).strip()
     organization_id = str(payload.get("organization_id", "")).strip()
     try:
+        workflow = get_workflow(payload.get("workflow_type"))
         source_language = normalize_language_code(payload.get("source_language", "auto"), allow_auto=True)
-        target_languages = _target_languages(payload.get("target_languages", ["en"]))
+        target_languages = _target_languages(payload.get("target_languages", []))
     except ValueError as exc:
         return jsonify({"status": "error", "error": str(exc)}), 400
 
@@ -84,9 +87,11 @@ def create_project():
     membership = _membership_for(user.id, organization_id)
     if not membership:
         return jsonify({"status": "error", "error": "Organization not found."}), 404
-    if not target_languages:
+    if workflow["requires_targets"] and not target_languages:
         return jsonify({"status": "error", "error": "Select at least one target language."}), 400
-    if source_language != "auto" and source_language in target_languages:
+    if workflow["id"] == "document_narrate" and source_language == "auto":
+        return jsonify({"status": "error", "error": "Choose the manuscript language for narration."}), 400
+    if workflow["requires_targets"] and source_language != "auto" and source_language in target_languages:
         return jsonify({"status": "error", "error": "Source and target languages must be different."}), 400
 
     rights_confirmed = bool(payload.get("rights_confirmed", False))
@@ -96,8 +101,9 @@ def create_project():
         created_by_user_id=user.id,
         title=title,
         slug=_slug(title),
+        workflow_type=workflow["id"],
         source_language=source_language,
-        target_languages=target_languages,
+        target_languages=target_languages if workflow["requires_targets"] else [],
         rights_confirmed=rights_confirmed,
         voice_consent_confirmed=voice_consent_confirmed,
     )
@@ -131,6 +137,7 @@ def get_project(project_id: str):
         {
             "status": "success",
             "project": project.to_dict(),
+            "workflow": workflow_with_availability(project.workflow_type),
             "artifacts": [artifact.to_dict() for artifact in artifacts],
             "jobs": [job.to_dict() for job in jobs],
         }
@@ -170,18 +177,34 @@ def upload_project_source(project_id: str):
         return jsonify({"status": "error", "error": "Project not found."}), 404
     uploaded_file = request.files.get("file")
     if not uploaded_file or not uploaded_file.filename:
-        return jsonify({"status": "error", "error": "Select an audio or video file."}), 400
+        return jsonify({"status": "error", "error": "Select a source file."}), 400
 
+    workflow = get_workflow(project.workflow_type)
     suffix = re.search(r"(\.[A-Za-z0-9]+)$", uploaded_file.filename)
     normalized_suffix = suffix.group(1).lower() if suffix else ""
-    if normalized_suffix not in ALLOWED_SOURCE_SUFFIXES:
-        return jsonify({"status": "error", "error": "Unsupported source file type."}), 400
+    allowed_suffixes = ALLOWED_AUDIO_SUFFIXES if workflow["input_kind"] == "audio" else DOCUMENT_SUFFIXES
+    if normalized_suffix not in allowed_suffixes:
+        expected = "audio or video" if workflow["input_kind"] == "audio" else "TXT, Markdown, or DOCX manuscript"
+        return jsonify({"status": "error", "error": f"Upload a supported {expected} file for this workflow."}), 400
 
     storage = get_storage()
     stored = storage.save_upload(
         uploaded_file,
         prefix=f"organizations/{project.organization_id}/projects/{project.id}/source",
     )
+    artifact_metadata = {"input_kind": workflow["input_kind"], "workflow_type": workflow["id"]}
+    try:
+        with storage.materialize(stored.key) as local_source:
+            if workflow["input_kind"] == "audio":
+                project.duration_seconds = probe_media_duration(local_source)
+            else:
+                document_text = extract_document_text(local_source)
+                project.duration_seconds = estimate_narration_seconds(document_text)
+                artifact_metadata["word_count"] = manuscript_word_count(document_text)
+    except Exception as exc:  # pylint: disable=broad-except
+        storage.delete(stored.key)
+        return jsonify({"status": "error", "error": str(exc) or "The source file could not be read."}), 400
+
     artifact = Artifact(
         project_id=project.id,
         kind="source",
@@ -190,13 +213,9 @@ def upload_project_source(project_id: str):
         content_type=stored.content_type,
         size_bytes=stored.size_bytes,
         language=project.source_language,
+        artifact_metadata=artifact_metadata,
     )
     project.status = "ready"
-    try:
-        with storage.materialize(stored.key) as local_source:
-            project.duration_seconds = probe_media_duration(local_source)
-    except Exception:  # pylint: disable=broad-except
-        project.duration_seconds = None
     db.session.add(artifact)
     db.session.commit()
     return jsonify({"status": "success", "artifact": artifact.to_dict(), "project": project.to_dict()}), 201
@@ -211,10 +230,15 @@ def create_project_job(project_id: str):
     project = _project_for_user(project_id, user.id)
     if not project:
         return jsonify({"status": "error", "error": "Project not found."}), 404
-    if not project.rights_confirmed or not project.voice_consent_confirmed:
-        return jsonify({"status": "error", "error": "Rights and voice consent must be confirmed."}), 409
+    workflow = workflow_with_availability(project.workflow_type)
+    if not project.rights_confirmed:
+        return jsonify({"status": "error", "error": "Content rights must be confirmed."}), 409
+    if workflow["requires_voice_consent"] and not project.voice_consent_confirmed:
+        return jsonify({"status": "error", "error": "Voice consent must be confirmed."}), 409
+    if not workflow["available"]:
+        return jsonify({"status": "error", "error": workflow["availability_note"]}), 409
     if not Artifact.query.filter_by(project_id=project.id, kind="source").first():
-        return jsonify({"status": "error", "error": "Upload source audio before starting a job."}), 409
+        return jsonify({"status": "error", "error": "Upload the project source before starting a job."}), 409
 
     payload = request.get_json(silent=True) or {}
     mode = str(payload.get("mode", "preview")).strip().lower()

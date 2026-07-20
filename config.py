@@ -20,7 +20,7 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 OPENAI_MODEL = os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-5.6-terra")
 OPENAI_REASONING_EFFORT = os.getenv("OPENAI_TRANSLATION_REASONING_EFFORT", "low")
 WHISPER_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1")
-ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
+ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
 # Book metadata (adjust per project)
 BOOK_GENRE = "hardboiled thriller"

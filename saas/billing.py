@@ -12,6 +12,7 @@ from sqlalchemy import func
 from config import PREVIEW_MINUTES
 from saas.extensions import db
 from saas.models import Organization, PipelineJob, Project, Subscription, UsageEvent
+from saas.workflows import get_workflow
 
 PLAN_CREDITS = {"creator": 300, "studio": 1200}
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "on_trial", "paused", "past_due"}
@@ -35,12 +36,14 @@ def credit_balance(organization_id: str) -> int:
 
 def job_credit_cost(project: Project, mode: str) -> int:
     if not project.duration_seconds or project.duration_seconds <= 0:
-        raise ValueError("Source duration is unavailable. Upload a valid audio or video file again.")
+        raise ValueError("Source duration is unavailable. Upload a valid source file again.")
     duration_seconds = float(project.duration_seconds)
     if mode == "preview":
         duration_seconds = min(duration_seconds, PREVIEW_MINUTES * 60)
     minutes = max(1, math.ceil(duration_seconds / 60.0))
-    return minutes * max(1, len(project.target_languages or []))
+    workflow = get_workflow(project.workflow_type)
+    output_count = len(project.target_languages or []) if workflow["requires_targets"] else 1
+    return minutes * max(1, output_count)
 
 
 def grant_credits(
@@ -83,6 +86,7 @@ def reserve_job_credits(job: PipelineJob) -> int:
             event_metadata={
                 "mode": job.mode,
                 "duration_seconds": project.duration_seconds,
+                "workflow_type": project.workflow_type,
                 "target_languages": list(project.target_languages or []),
             },
         )

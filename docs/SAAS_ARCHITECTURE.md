@@ -1,17 +1,24 @@
-# Audiobook Localization SaaS Architecture
+# Creator Transformation SaaS Architecture
 
 ## Product boundary
 
-The first public release is a long-form audio localization studio for authors,
-publishers, podcast producers, and course creators. It exposes a catalog of 34
-source and target languages, including automatic source-language detection. The
-quality program should still begin with a smaller tested matrix—especially
-Serbian, Croatian, Bosnian, English, German, Spanish, and French—before every
-combination is marketed as production-proven.
+The first public release is a long-form transformation studio for authors,
+publishers, podcast producers, and course creators. Rather than forcing every
+source through one localization pipeline, each project stores one explicit
+workflow type: audio transcription, audio translation, translated audio, book
+translation, or audiobook creation.
 
-The differentiator is the complete production workflow: transcription,
-glossary-controlled translation, human review, voice consent, narration,
-mastering, and export. It is not positioned as a generic text translator.
+The studio exposes 34 source and target languages, including automatic source
+detection where the selected workflow permits it. The quality program should
+still begin with a smaller tested matrix—especially Serbian, Croatian, Bosnian,
+English, German, Spanish, and French—before every combination is marketed as
+production-proven.
+
+The differentiator is the adaptive production workflow: source validation,
+transcription or manuscript segmentation, glossary-controlled translation,
+conditional voice authorization, narration, and private artifact delivery. It
+is not positioned as a generic text translator or as performance-preserving
+voice conversion.
 
 ## Deployment shape
 
@@ -25,7 +32,7 @@ Flask API -------------- PostgreSQL
    |                         +-- projects, jobs, subscriptions, usage ledger
    |
    +-- Object storage (S3/R2)
-   |       +-- source audio, previews, exports, JSON artifacts
+   |       +-- source audio/manuscripts, previews, MP3s, JSON artifacts
    |
    +-- Redis queue
            |
@@ -46,7 +53,7 @@ workers so that uploads and jobs survive restarts.
 - `User`: identity, password hash, verification and account status.
 - `Organization`: billing and ownership boundary.
 - `Membership`: user role within an organization.
-- `Project`: one source work and its localization settings.
+- `Project`: one source work, creator-selected workflow, and language settings.
 - `Artifact`: source, transcript, translation, preview, export, and report files.
 - `PipelineJob`: persistent state and progress for a processing operation.
 - `UsageEvent`: immutable credit/minute ledger entry.
@@ -55,10 +62,11 @@ workers so that uploads and jobs survive restarts.
 
 ## Processing and metering
 
-Billable usage is measured in target-processing seconds:
+Billable usage is measured in source-processing minutes. Workflows without
+target languages count one output; multilingual workflows count every target:
 
 ```text
-source duration seconds x number of generated target languages
+rounded source minutes x max(1, number of generated target languages)
 ```
 
 Every debit or credit is an immutable usage event with an idempotency key.
@@ -74,7 +82,8 @@ Failed jobs release their reservation.
 - Downloads use short-lived signed URLs or authenticated local routes.
 - Passwords are hashed using Werkzeug's current secure password hasher.
 - Public deployments require non-default session and admin secrets.
-- Voice generation requires a stored rights declaration and voice-consent record.
+- Workflows that generate voice require a stored rights declaration and
+  voice-consent record; text-only workflows do not request irrelevant consent.
 - Generated audio records provider/model provenance and AI-content disclosure.
 - Raw source retention defaults to 30 days and can be shortened by the customer.
 
@@ -90,7 +99,9 @@ Failed jobs release their reservation.
    synchronization.
 5. **Complete:** replace the single-screen prototype with a public site and
    project studio.
-6. **Next:** deploy an invite-only private beta, measure unit economics and
+6. **Complete:** add creator-selected book/audio workflows, document ingestion,
+   conditional voice gates, and workflow-aware metering.
+7. **Next:** deploy an invite-only private beta, measure unit economics and
    quality, close the launch checklist, then open access.
 
 ## Production gates

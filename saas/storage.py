@@ -68,6 +68,12 @@ class LocalStorage:
             raise FileNotFoundError("Stored object does not exist.")
         yield candidate
 
+    def delete(self, key: str) -> None:
+        candidate = (self.root / key).resolve()
+        if self.root not in candidate.parents:
+            raise ValueError("Invalid storage key.")
+        candidate.unlink(missing_ok=True)
+
 
 class S3Storage:
     def __init__(self):
@@ -121,6 +127,9 @@ class S3Storage:
             yield temp_path
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def delete(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
 
 
 def _object_key(prefix: str, filename: str) -> str:

@@ -87,8 +87,9 @@ class Project(db.Model):
     created_by_user_id = db.Column(db.String(32), db.ForeignKey("users.id"), nullable=False, index=True)
     title = db.Column(db.String(240), nullable=False)
     slug = db.Column(db.String(260), nullable=False)
+    workflow_type = db.Column(db.String(40), nullable=False, default="audio_translate", index=True)
     source_language = db.Column(db.String(16), nullable=False, default="auto")
-    target_languages = db.Column(db.JSON, nullable=False, default=lambda: ["en"])
+    target_languages = db.Column(db.JSON, nullable=False, default=list)
     status = db.Column(db.String(32), nullable=False, default="draft", index=True)
     duration_seconds = db.Column(db.Float, nullable=True)
     rights_confirmed = db.Column(db.Boolean, nullable=False, default=False)
@@ -104,6 +105,7 @@ class Project(db.Model):
             "organization_id": self.organization_id,
             "title": self.title,
             "slug": self.slug,
+            "workflow_type": self.workflow_type,
             "source_language": self.source_language,
             "target_languages": list(self.target_languages or []),
             "status": self.status,

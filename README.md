@@ -5,9 +5,9 @@
 <h1 align="center">AI Voice Translator</h1>
 
 <p align="center">
-  <strong>Your story, heard everywhere.</strong><br />
-  A multilingual SaaS workspace for turning long-form audio into consistent,
-  reviewable localization packages.
+  <strong>One source. Many possibilities.</strong><br />
+  A creator-first SaaS workspace for turning books and recordings into
+  transcripts, translations, narrated audio, and multilingual editions.
 </p>
 
 <p align="center">
@@ -20,20 +20,29 @@
 
 > [!IMPORTANT]
 > This repository is a production-shaped **private-beta foundation**. The SaaS
-> workflow currently delivers timestamped transcript, glossary, and translated
-> JSON artifacts. Synthetic narration and mastered audio export are the next
-> product phase and are not yet enabled in SaaS jobs.
+> ships five creator-selected workflows. Text workflows require OpenAI;
+> audiobook and translated-audio workflows additionally require configured
+> ElevenLabs credentials and recorded voice authorization. “Dub” currently
+> means translated AI narration—it does not preserve the original performance,
+> timing, or vocal identity.
 
 ## The product
 
 AI Voice Translator helps authors, publishers, podcasters, course creators, and
-documentary teams localize a long-form recording without rebuilding the process
-for every language.
+documentary teams start with the result they want instead of wrestling with a
+generic pipeline. A creator can choose:
 
-Upload one licensed source, choose up to 12 target languages, and run either a
-five-minute preview or a full translation. The system transcribes once, builds a
-story glossary, fans out target editions, tracks their jobs and artifacts, and
-meters usage by localized minute.
+| Source | Transformation | Delivered output |
+| --- | --- | --- |
+| Recording | Transcribe | Timestamped source transcript |
+| Recording | Translate | Transcript, glossary, and translated text editions |
+| Recording | Create translated audio | Translated text plus AI-narrated MP3 per target language |
+| TXT, Markdown, or DOCX book | Translate | Segmented source, glossary, and translated text editions |
+| TXT, Markdown, or DOCX book | Create an audiobook | Segmented source plus AI-narrated MP3 |
+
+Every project supports a five-minute preview and full production. The selected
+workflow controls accepted files, required languages, consent, provider gates,
+credit math, job routing, and downloadable artifacts.
 
 <table>
   <tr>
@@ -46,12 +55,18 @@ meters usage by localized minute.
   </tr>
 </table>
 
+<p align="center">
+  <img src="docs/assets/product-workflows.jpg" alt="Creator choosing between five book and audio transformations" width="100%" />
+  <br />
+  <sub>The project wizard starts with the creator’s intended outcome and adapts every later step.</sub>
+</p>
+
 ## What is inside
 
 | Product area | Included capability |
 | --- | --- |
-| Localization | 34-language catalog, automatic source detection, timestamped transcription, literary translation, reusable story glossary |
-| SaaS workspace | Registration, secure sessions, organizations, projects, consent records, persistent jobs, activity, downloads |
+| Transformations | Five explicit book/audio workflows, 34-language catalog, timestamped transcription, literary translation, optional AI narration |
+| SaaS workspace | Adaptive four-step project wizard, secure sessions, organizations, consent records, persistent jobs, activity, downloads |
 | Usage and billing | Immutable credit ledger, reservation/refund flow, Free/Creator/Studio plans, Lemon Squeezy checkout and portal |
 | Production runtime | PostgreSQL migrations, Redis/RQ workers, S3/R2 storage, per-job file isolation, safe temporary cleanup |
 | Trust and safety | Rights and narrator-consent records, CSRF, rate limits, secure cookies, CSP/HSTS, signed replay-safe billing webhooks |
@@ -61,14 +76,15 @@ meters usage by localized minute.
 
 ```mermaid
 flowchart LR
-    A["Upload licensed audio"] --> B["Transcribe once"]
-    B --> C["Build story glossary"]
-    C --> D{"Target languages"}
-    D --> E["English edition"]
-    D --> F["German edition"]
-    D --> G["Spanish edition"]
-    D --> H["Up to 12 targets"]
-    E & F & G & H --> I["Review and download artifacts"]
+    A{"What do you want to create?"}
+    A --> B["Audio → transcript"]
+    A --> C["Audio → translated text"]
+    A --> D["Audio → translated narration"]
+    A --> E["Book → translated text"]
+    A --> F["Book → narrated audio"]
+    B & C & D & E & F --> G["Adaptive source, language, and rights steps"]
+    G --> H["Preview or full production"]
+    H --> I["Private downloadable artifacts"]
 ```
 
 Every job reserves its full credit cost before dispatch. If processing fails,
@@ -85,6 +101,7 @@ flowchart TB
     API --> QUEUE["Redis queue"]
     QUEUE --> WORKER["RQ pipeline worker"]
     WORKER --> OPENAI["OpenAI transcription + translation"]
+    WORKER --> VOICE["ElevenLabs narration when selected"]
     WORKER --> STORE
     LEMON["Lemon Squeezy"] -->|"signed webhooks"| API
     API --> LEDGER["Usage credit ledger"]
@@ -102,6 +119,8 @@ For the domain model and design decisions, read
 - **Frontend:** React 18, Vite 8, responsive custom CSS.
 - **API:** Python 3.11, Flask, Flask-SQLAlchemy, Flask-Migrate.
 - **AI:** OpenAI timestamped transcription and Responses API translation.
+- **Voice:** Optional ElevenLabs multilingual text-to-speech for authorized
+  audiobook and translated-audio workflows.
 - **Jobs:** Redis and RQ, with an explicit local thread fallback.
 - **Data:** PostgreSQL in production, SQLite in development.
 - **Files:** S3-compatible storage, including Cloudflare R2.
@@ -124,6 +143,7 @@ npm ci --prefix frontend
 
 cp .env.example .env
 # Add OPENAI_API_KEY to .env
+# Add ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID for narrated-audio workflows
 
 flask --app app db upgrade
 npm run build --prefix frontend
@@ -149,6 +169,7 @@ Copy `.env.example`; never commit the resulting `.env`.
 | Application | `APP_ENV`, `APP_SECRET_KEY`, `APP_BASE_URL`, `FREE_CREDITS` |
 | Database | `DATABASE_URL` |
 | OpenAI | `OPENAI_API_KEY`, `OPENAI_TRANSLATION_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` |
+| Voice | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID` |
 | Jobs | `JOB_EXECUTION_MODE`, `REDIS_URL`, `RATELIMIT_STORAGE_URI` |
 | Storage | `STORAGE_BACKEND`, `S3_ENDPOINT_URL`, `S3_BUCKET`, scoped S3 credentials |
 | Billing | Lemon Squeezy API key, store ID, webhook secret, and plan variant IDs |
@@ -159,10 +180,11 @@ secure cookies, and disabled legacy Basic Auth.
 
 ## Plans and metering
 
-One credit represents one target-language audio minute:
+Single-output workflows use one credit per rounded source minute. Multilingual
+workflows multiply that duration by the number of target languages:
 
 ```text
-credit cost = rounded source minutes × number of target languages
+credit cost = rounded source minutes × max(1, number of target languages)
 ```
 
 | Plan | Credits | Product default |
@@ -217,10 +239,11 @@ docs/           architecture, deployment, launch, and repository visuals
 
 ## Responsible use
 
-Only process recordings and voices you are authorized to use. The application
-records rights and narrator-consent declarations, but those records are not a
-replacement for legal review, provider verification, or jurisdiction-specific
-consent requirements.
+Only process books, recordings, and voices you are authorized to use. Every
+project records content rights; workflows that synthesize audio additionally
+record explicit voice authorization. Those records are not a replacement for
+legal review, provider verification, or jurisdiction-specific consent
+requirements.
 
 Before serving public users, implement the remaining email verification,
 password reset, file scanning, retention/deletion, support, and legal-policy
@@ -236,5 +259,5 @@ opening a public issue.
 ---
 
 <p align="center">
-  Built for stories that deserve more than a literal translation.
+  Built for stories that deserve more than one possible form.
 </p>

@@ -10,11 +10,14 @@ public registration until every launch gate below has an owner and is complete.
 - [ ] Replace the working name, placeholder support email, favicon, and domain.
 - [ ] Test the full workflow with real authors/publishers in at least five source
   and five target languages.
+- [ ] Test every creator path—audio transcription, audio translation, translated
+  narration, book translation, and audiobook creation—with licensed fixtures.
 - [ ] Measure transcription/translation quality, job failure rate, processing
   time, support burden, and gross margin.
 - [ ] Re-price plans from measured provider and infrastructure costs.
-- [ ] Decide whether public v1 sells translation packages only or includes
-  synthetic narration. The landing page must match the enabled output exactly.
+- [ ] Validate whether public v1 should expose the voice-provider-dependent
+  workflows or keep them invite-only. The landing page and pricing must match
+  the production credentials and quality level actually enabled.
 
 ## Account lifecycle
 

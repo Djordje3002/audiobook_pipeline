@@ -23,6 +23,7 @@ from saas.api_auth import auth_api
 from saas.api_billing import billing_api
 from saas.api_projects import projects_api
 from saas.extensions import init_extensions
+from saas.workflows import workflow_catalog
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
@@ -246,6 +247,11 @@ def languages():
             "languages": language_catalog(),
         }
     )
+
+
+@web.get("/api/workflows")
+def workflows():
+    return jsonify({"status": "success", "workflows": workflow_catalog()})
 
 
 @web.post("/api/upload")
@@ -629,6 +635,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         LEMONSQUEEZY_WEBHOOK_SECRET=os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", ""),
         LEMONSQUEEZY_CREATOR_VARIANT_ID=os.getenv("LEMONSQUEEZY_CREATOR_VARIANT_ID", ""),
         LEMONSQUEEZY_STUDIO_VARIANT_ID=os.getenv("LEMONSQUEEZY_STUDIO_VARIANT_ID", ""),
+        ELEVENLABS_API_KEY=os.getenv("ELEVENLABS_API_KEY", ""),
+        ELEVENLABS_VOICE_ID=os.getenv("ELEVENLABS_VOICE_ID", ""),
+        ELEVENLABS_MODEL_ID=os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2"),
     )
     created_app.config.from_prefixed_env(prefix="APP")
     if test_config:
