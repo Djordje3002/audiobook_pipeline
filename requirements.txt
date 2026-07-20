@@ -11,7 +11,7 @@ openai==2.46.0
 httpx==0.27.2
 
 # ElevenLabs
-requests==2.32.3
+requests==2.34.2
 
 # Persistent jobs and object storage
 redis==8.0.1
