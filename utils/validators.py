@@ -41,7 +41,12 @@ def _missing_protected_names(original_text: str, translated_text: str, glossary:
     return missing_names
 
 
-def validate_translation(segment: dict, glossary: dict | None = None) -> list[str]:
+def validate_translation(
+    segment: dict,
+    glossary: dict | None = None,
+    source_language: str | None = None,
+    target_language: str | None = None,
+) -> list[str]:
     """Return non-blocking warnings for translation quality checks."""
     warnings: list[str] = []
 
@@ -52,7 +57,10 @@ def validate_translation(segment: dict, glossary: dict | None = None) -> list[st
         warnings.append("Translation is empty.")
         return warnings
 
-    if _contains_serbian_chars(translated_text):
+    source_code = str(source_language or "").lower()
+    target_code = str(target_language or "").lower()
+    bcs_codes = {"sr", "bs", "hr"}
+    if source_code in bcs_codes and target_code and target_code not in bcs_codes and _contains_serbian_chars(translated_text):
         warnings.append("Translated output still contains Serbian-specific characters.")
 
     translated_lower = translated_text.lower()

@@ -1,0 +1,13 @@
+providers = ["python"]
+
+[phases.setup]
+nixPkgs = ["...", "ffmpeg", "nodejs_22"]
+
+[phases.install]
+cmds = ["...", "npm ci --prefix frontend"]
+
+[phases.build]
+cmds = ["npm run build --prefix frontend"]
+
+[start]
+cmd = "gunicorn app:app --timeout 120 --workers 1 --worker-class gthread --threads 4 --bind 0.0.0.0:$PORT"

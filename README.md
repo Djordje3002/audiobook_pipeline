@@ -1,205 +1,240 @@
-# Audiobook Pipeline — Serbian to English Voice Transformation System
+<p align="center">
+  <img src="docs/assets/product-hero.png" alt="A story becoming several multilingual audio editions" width="100%" />
+</p>
 
-This system transforms existing Serbian-language audiobooks into professional English-language audiobooks using a cloned voice, preserving the original narrator's emotion, pacing, and intonation throughout the entire production process.
+<h1 align="center">AI Voice Translator</h1>
 
-## What It Does
+<p align="center">
+  <strong>Your story, heard everywhere.</strong><br />
+  A multilingual SaaS workspace for turning long-form audio into consistent,
+  reviewable localization packages.
+</p>
 
-The pipeline accepts a Serbian audio file as input and produces a finished, ACX-compliant English audiobook as output. The process is fully automated with a single human review checkpoint before full production begins.
+<p align="center">
+  <a href="https://github.com/Djordje3002/audiobook_pipeline/actions/workflows/ci.yml"><img src="https://github.com/Djordje3002/audiobook_pipeline/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=111916" alt="React 18" />
+  <img src="https://img.shields.io/badge/Flask-3-111916?logo=flask&logoColor=white" alt="Flask 3" />
+  <img src="https://img.shields.io/badge/status-private_beta-d9ff6a?labelColor=111916" alt="Private beta" />
+</p>
 
-1. The system transcribes Serbian audio using OpenAI Whisper, producing timestamped segments that map precisely to the original recording.
-2. Segments are translated to English using GPT-4o with a literary-quality prompt that preserves genre style, character voices, slang equivalents, and narrative rhythm.
-3. Before translation begins, the system extracts a glossary of character names, recurring phrases, and stylistic notes from the source material to ensure consistency across the entire book.
-4. Each translated text segment is paired with its corresponding original audio clip.
-5. Clips are sent to the ElevenLabs Speech-to-Speech API using a Professional Voice Clone model, mapping the narrator's English clone voice onto the original audio while preserving emotional delivery, dramatic pauses, and intonation patterns.
-6. Synthesized segments are joined with FFmpeg crossfades, processed with iterative RMS normalization, peak limiting, and a noise gate, then exported as ACX-ready audiobook files.
+> [!IMPORTANT]
+> This repository is a production-shaped **private-beta foundation**. The SaaS
+> workflow currently delivers timestamped transcript, glossary, and translated
+> JSON artifacts. Synthetic narration and mastered audio export are the next
+> product phase and are not yet enabled in SaaS jobs.
 
-This Speech-to-Speech approach produces more natural results than text-to-speech because emotional performance comes from the original human recording instead of being generated only from text.
+## The product
 
-## Two-Phase Production Flow
+AI Voice Translator helps authors, publishers, podcasters, course creators, and
+documentary teams localize a long-form recording without rebuilding the process
+for every language.
 
-The pipeline is preview-first to prevent unnecessary API costs.
+Upload one licensed source, choose up to 12 target languages, and run either a
+five-minute preview or a full translation. The system transcribes once, builds a
+story glossary, fans out target editions, tracks their jobs and artifacts, and
+meters usage by localized minute.
 
-- On upload, only the first five minutes are processed.
-- The user listens to this preview and confirms voice quality.
-- Full-book production starts only after confirmation.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/product-landing.jpg" alt="AI Voice Translator public landing page" /></td>
+    <td width="50%"><img src="docs/assets/product-dashboard.jpg" alt="AI Voice Translator project dashboard" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Public product experience</sub></td>
+    <td align="center"><sub>Private organization workspace</sub></td>
+  </tr>
+</table>
 
-This keeps failed attempts low-cost (cents) instead of consuming the full production budget.
+## What is inside
 
-## Technical Stack
+| Product area | Included capability |
+| --- | --- |
+| Localization | 34-language catalog, automatic source detection, timestamped transcription, literary translation, reusable story glossary |
+| SaaS workspace | Registration, secure sessions, organizations, projects, consent records, persistent jobs, activity, downloads |
+| Usage and billing | Immutable credit ledger, reservation/refund flow, Free/Creator/Studio plans, Lemon Squeezy checkout and portal |
+| Production runtime | PostgreSQL migrations, Redis/RQ workers, S3/R2 storage, per-job file isolation, safe temporary cleanup |
+| Trust and safety | Rights and narrator-consent records, CSRF, rate limits, secure cookies, CSP/HSTS, signed replay-safe billing webhooks |
+| Developer experience | React/Vite build, Flask app factory, typed domain model, CI, tests, deployment and launch runbooks |
 
-### Transcription Layer
+## How it works
 
-- OpenAI Whisper with Serbian language targeting.
-- Overlap-based chunking to prevent sentence loss at chunk boundaries.
-- Glossary-informed prompt to improve recognition of character names and domain terms.
+```mermaid
+flowchart LR
+    A["Upload licensed audio"] --> B["Transcribe once"]
+    B --> C["Build story glossary"]
+    C --> D{"Target languages"}
+    D --> E["English edition"]
+    D --> F["German edition"]
+    D --> G["Spanish edition"]
+    D --> H["Up to 12 targets"]
+    E & F & G & H --> I["Review and download artifacts"]
+```
 
-### Translation Layer
+Every job reserves its full credit cost before dispatch. If processing fails,
+the reservation is returned. Repeated job requests and billing events use
+idempotency keys so retries do not create duplicate charges or credit grants.
 
-- GPT-4o with a structured literary system prompt.
-- Extracted glossary included on every API call.
-- Timing constraint based on original segment duration to align English word count with Serbian pacing.
-- Automatic validation for:
-  - Missing character names.
-  - Untranslated Serbian characters.
-  - Unwanted GPT commentary.
+## Architecture
 
-### Synthesis Layer
+```mermaid
+flowchart TB
+    UI["React + Vite"] --> API["Flask API"]
+    API --> DB[("PostgreSQL")]
+    API --> STORE["S3 / Cloudflare R2"]
+    API --> QUEUE["Redis queue"]
+    QUEUE --> WORKER["RQ pipeline worker"]
+    WORKER --> OPENAI["OpenAI transcription + translation"]
+    WORKER --> STORE
+    LEMON["Lemon Squeezy"] -->|"signed webhooks"| API
+    API --> LEDGER["Usage credit ledger"]
+```
 
-- ElevenLabs Speech-to-Speech with configurable:
-  - Stability.
-  - Similarity.
-  - Style.
-- Automatic fallback to text-to-speech if Speech-to-Speech fails.
-- Full resume support so interrupted runs continue from the last completed segment.
+Local development replaces PostgreSQL, Redis/RQ, and S3 with SQLite, a background
+thread, and local storage. Production refuses to start with that development
+topology.
 
-### Post-Production Layer
+For the domain model and design decisions, read
+[the SaaS architecture](docs/SAAS_ARCHITECTURE.md).
 
-- Noise gate before normalization to clean ElevenLabs background artifacts.
-- Iterative gain correction targeting -19 dB RMS.
-- Hard peak limiting at -3.5 dBFS.
-- ACX compliance verification across all required parameters before export.
+## Technology
 
-## ACX Compliance Targets
+- **Frontend:** React 18, Vite 8, responsive custom CSS.
+- **API:** Python 3.11, Flask, Flask-SQLAlchemy, Flask-Migrate.
+- **AI:** OpenAI timestamped transcription and Responses API translation.
+- **Jobs:** Redis and RQ, with an explicit local thread fallback.
+- **Data:** PostgreSQL in production, SQLite in development.
+- **Files:** S3-compatible storage, including Cloudflare R2.
+- **Billing:** Lemon Squeezy checkout, customer portal, subscriptions, and
+  HMAC-SHA256 webhook verification.
+- **Audio:** FFmpeg, pydub, optional ElevenLabs/readback modules.
 
-- RMS amplitude: between -23 dB and -18 dB (working target: -19 dB).
-- Peak level: below -3 dBFS (working ceiling: -3.5 dBFS).
-- Noise floor: below -60 dBFS (achieved via noise gate preprocessing).
+## Quick start
 
-Every exported file includes a JSON report with measured values and pass/fail status for each required metric.
+Prerequisites: Python 3.11, Node.js 22, FFmpeg, and `ffprobe`.
 
-## Output Formats
+```bash
+git clone https://github.com/Djordje3002/audiobook_pipeline.git
+cd audiobook_pipeline
 
-- MP3 at 192 kbps.
-- Lossless FLAC.
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+npm ci --prefix frontend
 
-## Cost Structure
+cp .env.example .env
+# Add OPENAI_API_KEY to .env
 
-Cost scales with audiobook length.
+flask --app app db upgrade
+npm run build --prefix frontend
+flask --app app run --host 127.0.0.1 --port 8080
+```
 
-- Example: a 6-hour book is approximately $45 total across Whisper transcription, GPT-4o translation, and ElevenLabs Speech-to-Speech synthesis.
-- Preview phase costs under $1 regardless of total book length.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080), register an account, and
+create the first project. Local mode supplies 15 signup credits and does not
+require PostgreSQL, Redis, R2, or Lemon Squeezy.
 
-## Infrastructure
+For frontend hot reload, keep Flask on port `8080` and run:
 
-- Flask web application.
-- Deployable to Railway or any Python-compatible host.
-- HTTP Basic Authentication for access control.
-- OpenAI and ElevenLabs keys can be provided per run from the UI (recommended for client billing separation), with `.env` fallback for CLI/server defaults.
-- Supports large uploads, long-running background jobs, and resume-capable processing without requiring an open browser session.
+```bash
+npm run dev --prefix frontend
+```
 
-## Product Goal
+## Configuration
 
-Build a fully automated, production-grade audiobook localization pipeline that preserves storytelling performance while delivering ACX-compliant English audiobooks efficiently and cost-effectively.
+Copy `.env.example`; never commit the resulting `.env`.
 
-## Recommended Repository Structure
+| Group | Important variables |
+| --- | --- |
+| Application | `APP_ENV`, `APP_SECRET_KEY`, `APP_BASE_URL`, `FREE_CREDITS` |
+| Database | `DATABASE_URL` |
+| OpenAI | `OPENAI_API_KEY`, `OPENAI_TRANSLATION_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` |
+| Jobs | `JOB_EXECUTION_MODE`, `REDIS_URL`, `RATELIMIT_STORAGE_URI` |
+| Storage | `STORAGE_BACKEND`, `S3_ENDPOINT_URL`, `S3_BUCKET`, scoped S3 credentials |
+| Billing | Lemon Squeezy API key, store ID, webhook secret, and plan variant IDs |
+
+In production, startup validation requires HTTPS, a 32+ character application
+secret, PostgreSQL, Redis/RQ, S3-compatible storage, OpenAI, configured billing,
+secure cookies, and disabled legacy Basic Auth.
+
+## Plans and metering
+
+One credit represents one target-language audio minute:
 
 ```text
-audiobook_pipeline/
-├── .env
-├── .gitignore
-├── README.md
-├── requirements.txt
-├── Procfile
-├── runtime.txt
-├── app.py
-├── auth.py
-├── config.py
-├── main.py
-├── modules/
-│   ├── __init__.py
-│   ├── audio_ingestion.py
-│   ├── translation.py
-│   ├── synthesis.py
-│   └── postproduction.py
-├── utils/
-│   ├── __init__.py
-│   ├── cost_estimator.py
-│   └── validators.py
-├── templates/
-│   └── index.html
-├── static/
-│   ├── style.css
-│   └── app.js
-├── input_audio/
-│   └── .gitkeep
-├── output_audio/
-│   ├── chapter_01/
-│   ├── final/
-│   └── previews/
-├── output/
-│   ├── translated/
-│   └── reports/
-└── temp_chunks/
-    └── .gitkeep
+credit cost = rounded source minutes × number of target languages
 ```
 
-## What Lives Where (And Why)
+| Plan | Credits | Product default |
+| --- | ---: | ---: |
+| Free | 15 once | $0 |
+| Creator | 300 / payment | $29 / month |
+| Studio | 1,200 / payment | $79 / month |
 
-- Root level contains only immediate configuration, deployment, and entrypoint files.
-- `modules/` is the core pipeline: each file owns one stage only.
-- `utils/` contains cross-cutting helpers used by multiple stages.
-- `templates/` and `static/` follow Flask conventions for UI assets.
-- `input_audio/` is read-only source input for uploaded Serbian audiobooks.
-- `output_audio/` stores synthesized segments, previews, and final mastered exports.
-- `output/` stores text artifacts, glossary/translation JSON, and ACX reports.
-- `temp_chunks/` is ephemeral processing storage for Whisper chunking.
+These are private-beta defaults, not validated public pricing. Measure provider
+cost, gross margin, quality, and willingness to pay before a public launch.
 
-## Running The Web App (React + Flask)
-
-### Backend (Flask API)
+## Test and build
 
 ```bash
-cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline
-source venv/bin/activate
-gunicorn app:app --timeout 120 --workers 1 --bind 0.0.0.0:8080
+pytest -q
+npm run build --prefix frontend
+npm audit --prefix frontend
+pip check
 ```
 
-### Frontend (React dev mode)
+The GitHub Actions workflow runs backend tests and a production frontend build on
+every push and pull request to `main`.
+
+## Production deployment
+
+The recommended topology uses two services built from the same repository:
 
 ```bash
-cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline/frontend
-npm install
-npm run dev
+# web
+gunicorn app:app --timeout 120 --workers 1 --worker-class gthread --threads 4 --bind 0.0.0.0:$PORT
+
+# worker
+rq worker --url "$REDIS_URL" pipeline
+
+# pre-deploy migration
+flask --app app db upgrade
 ```
 
-Open `http://127.0.0.1:5173` for development.
+Follow the complete [Railway deployment runbook](docs/DEPLOYMENT.md), then close
+every relevant gate in the [public launch checklist](docs/LAUNCH_CHECKLIST.md).
 
-### Frontend (build for Flask serving)
+## Repository map
 
-```bash
-cd /Users/djordjes/Desktop/AiVoiceTranslator/audiobook_pipeline/frontend
-npm install
-npm run build
+```text
+frontend/       React/Vite marketing site and product studio
+saas/           accounts, projects, billing, jobs, credits, storage
+modules/        transcription, translation, synthesis, audio processing
+migrations/     Alembic schema history
+tests/          HTTP, SaaS API, billing, and pipeline utility tests
+docs/           architecture, deployment, launch, and repository visuals
 ```
 
-After build, Flask serves the React app from `frontend/dist` at `http://127.0.0.1:8080`.
+## Responsible use
 
-## Text-Only MVP Mode (Current)
+Only process recordings and voices you are authorized to use. The application
+records rights and narrator-consent declarations, but those records are not a
+replacement for legal review, provider verification, or jurisdiction-specific
+consent requirements.
 
-Current MVP runs in text-only mode to reduce costs:
-- Whisper transcription (Serbian)
-- GPT-4o literary translation (English)
-- Segment table + JSON shown in the React UI
+Before serving public users, implement the remaining email verification,
+password reset, file scanning, retention/deletion, support, and legal-policy
+gates documented in the launch checklist.
 
-Voice cloning, synthesis, and ACX export are temporarily disabled in orchestration.
-For web runs, `openai_api_key` is required in API requests so translation always bills the end user's key.
+## Contributing and security
 
-### MVP Run Order
+Contributions are welcome through focused issues and pull requests. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md). For security vulnerabilities, follow
+[SECURITY.md](SECURITY.md) and use GitHub's private reporting channel rather than
+opening a public issue.
 
-1. Upload source audio in the web app.
-2. Paste your **OpenAI API key** in Step 2 (Run Translation).
-3. Run **5-Minute Translation Preview**.
-4. Review translated segments in the table.
-5. Run **Full Translation** when preview quality is good.
+---
 
-Primary output files:
-- `output/translated/<book>_transcript.json`
-- `output/translated/<book>_glossary.json`
-- `output/translated/<book>_translated.json`
-
-## Re-Enable Voice Stage Later
-
-When budget allows:
-1. Uncomment the `TODO(re-enable-voice-stage)` blocks in `main.py`.
-2. Restore voice-stage env validation by requiring ElevenLabs keys in runtime checks.
-3. Run preview/full again to regenerate synthesized audio and ACX outputs.
+<p align="center">
+  Built for stories that deserve more than a literal translation.
+</p>

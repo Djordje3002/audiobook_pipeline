@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
+import ffmpeg
 from openai import OpenAI
 from pydub import AudioSegment
 
@@ -19,6 +22,7 @@ from config import (
     WHISPER_OVERLAP_SEC,
     OPENAI_API_KEY,
 )
+from modules.languages import normalize_language_code
 
 
 def _resolve_openai_api_key(api_key: str | None = None) -> str:
@@ -60,6 +64,15 @@ def _response_segments(response) -> list:
     return []
 
 
+def probe_media_duration(filepath: str | Path) -> float:
+    """Read media duration with ffprobe without decoding the full source file."""
+    metadata = ffmpeg.probe(str(filepath))
+    duration = float((metadata.get("format") or {}).get("duration") or 0)
+    if duration <= 0:
+        raise ValueError("Could not determine source duration.")
+    return round(duration, 3)
+
+
 def split_audio_for_whisper(filepath: str) -> list[dict]:
     """Split large audio into deterministic chunks that fit Whisper limits."""
     source_path = Path(filepath)
@@ -79,11 +92,9 @@ def split_audio_for_whisper(filepath: str) -> list[dict]:
             }
         ]
 
-    temp_dir = Path(TEMP_CHUNKS_DIR)
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
-    for stale in sorted(temp_dir.glob("chunk_*.mp3")):
-        stale.unlink(missing_ok=True)
+    temp_root = Path(TEMP_CHUNKS_DIR)
+    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(prefix="whisper-", dir=temp_root))
 
     num_chunks = math.ceil(file_size / WHISPER_MAX_BYTES)
     chunk_duration_ms = math.ceil(len(audio) / num_chunks)
@@ -108,61 +119,76 @@ def split_audio_for_whisper(filepath: str) -> list[dict]:
                 "chunk_start_sec": export_start_ms / 1000.0,
                 "core_start_sec": core_start_ms / 1000.0,
                 "core_end_sec": core_end_ms / 1000.0,
+                "temporary": True,
             }
         )
 
     return chunks
 
 
-def transcribe_audio(filepath: str, api_key: str | None = None) -> list[dict]:
-    """Transcribe Serbian audio and return normalized timestamped segments."""
+def transcribe_audio(
+    filepath: str,
+    api_key: str | None = None,
+    source_language: str = "auto",
+) -> list[dict]:
+    """Transcribe audio and return normalized timestamped segments."""
     client = _get_client(api_key=api_key)
+    language_code = normalize_language_code(source_language, allow_auto=True)
     chunks = split_audio_for_whisper(filepath)
     all_segments: list[dict] = []
 
-    for chunk in chunks:
-        chunk_path = chunk["path"]
-        print(f"  Transcribing chunk: {os.path.basename(chunk_path)}")
-        with open(chunk_path, "rb") as chunk_file:
-            response = client.audio.transcriptions.create(
-                model=WHISPER_MODEL,
-                file=chunk_file,
-                language="sr",
-                response_format="verbose_json",
-                timestamp_granularities=["segment"],
-            )
-
-        response_segments = _response_segments(response)
-        chunk_offset = float(chunk["chunk_start_sec"])
-        core_start = float(chunk["core_start_sec"])
-        core_end = float(chunk["core_end_sec"])
-
-        for segment in response_segments:
-            start_value = _segment_field(segment, "start")
-            end_value = _segment_field(segment, "end")
-            text_value = _segment_field(segment, "text", "")
-
-            if start_value is None or end_value is None:
-                continue
-
-            absolute_start = float(start_value) + chunk_offset
-            absolute_end = float(end_value) + chunk_offset
-            midpoint = (absolute_start + absolute_end) / 2.0
-            text = str(text_value).strip()
-            if not text:
-                continue
-
-            # Keep only the core range from each chunk to avoid overlap duplicates.
-            if midpoint < core_start or midpoint > core_end:
-                continue
-
-            all_segments.append(
-                {
-                    "start": round(absolute_start, 3),
-                    "end": round(absolute_end, 3),
-                    "text": text,
+    temporary_directories = {
+        Path(chunk["path"]).parent for chunk in chunks if chunk.get("temporary")
+    }
+    try:
+        for chunk in chunks:
+            chunk_path = chunk["path"]
+            print(f"  Transcribing chunk: {os.path.basename(chunk_path)}")
+            with open(chunk_path, "rb") as chunk_file:
+                request_options = {
+                    "model": WHISPER_MODEL,
+                    "file": chunk_file,
+                    "response_format": "verbose_json",
+                    "timestamp_granularities": ["segment"],
                 }
-            )
+                if language_code != "auto":
+                    request_options["language"] = language_code
+                response = client.audio.transcriptions.create(**request_options)
+
+            response_segments = _response_segments(response)
+            chunk_offset = float(chunk["chunk_start_sec"])
+            core_start = float(chunk["core_start_sec"])
+            core_end = float(chunk["core_end_sec"])
+
+            for segment in response_segments:
+                start_value = _segment_field(segment, "start")
+                end_value = _segment_field(segment, "end")
+                text_value = _segment_field(segment, "text", "")
+
+                if start_value is None or end_value is None:
+                    continue
+
+                absolute_start = float(start_value) + chunk_offset
+                absolute_end = float(end_value) + chunk_offset
+                midpoint = (absolute_start + absolute_end) / 2.0
+                text = str(text_value).strip()
+                if not text:
+                    continue
+
+                # Keep only the core range from each chunk to avoid overlap duplicates.
+                if midpoint < core_start or midpoint > core_end:
+                    continue
+
+                all_segments.append(
+                    {
+                        "start": round(absolute_start, 3),
+                        "end": round(absolute_end, 3),
+                        "text": text,
+                    }
+                )
+    finally:
+        for directory in temporary_directories:
+            shutil.rmtree(directory, ignore_errors=True)
 
     all_segments.sort(key=lambda item: (item["start"], item["end"]))
     print(f"  Total transcript segments: {len(all_segments)}")

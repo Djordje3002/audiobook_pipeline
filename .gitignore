@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.local
+!.env.example
 
 # Python
 __pycache__/
@@ -11,6 +12,7 @@ __pycache__/
 venv/
 venv311/
 env/
+instance/
 *.egg-info/
 .npm/
 

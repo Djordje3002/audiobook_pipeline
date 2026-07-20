@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
+import traceback
+import uuid
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Blueprint, Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from auth import require_auth
 from config import INPUT_AUDIO_DIR, OUTPUT_TRANSLATED_DIR
 from main import run_full_book, run_preview
+from modules.languages import language_catalog, normalize_language_code
 from modules.reader import synthesize_translation_readback, synthesize_translation_readback_elevenlabs
+from saas.api_auth import auth_api
+from saas.api_billing import billing_api
+from saas.api_projects import projects_api
+from saas.extensions import init_extensions
 
-app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 TRANSLATED_ROOT = (BASE_DIR / OUTPUT_TRANSLATED_DIR).resolve()
@@ -24,10 +32,147 @@ MEDIA_ROOTS = (
     BASE_DIR / "output",
     BASE_DIR / "input_audio",
 )
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+MAX_FINISHED_JOBS = 200
+web = Blueprint("web", __name__)
 
 
 def _frontend_index_exists() -> bool:
     return (FRONTEND_DIST_DIR / "index.html").exists()
+
+
+def _now_ts() -> int:
+    return int(time.time())
+
+
+def _prune_finished_jobs_unlocked() -> None:
+    finished = [
+        (job_id, int(job.get("updated_at", 0)))
+        for job_id, job in JOBS.items()
+        if str(job.get("status", "")).lower() in {"success", "error"}
+    ]
+    if len(finished) <= MAX_FINISHED_JOBS:
+        return
+    finished.sort(key=lambda item: item[1])
+    for job_id, _updated in finished[:-MAX_FINISHED_JOBS]:
+        JOBS.pop(job_id, None)
+
+
+def _create_job(
+    mode: str,
+    source_path: str,
+    book_title: str | None = None,
+    source_language: str = "sr",
+    target_language: str = "en",
+) -> str:
+    job_id = uuid.uuid4().hex
+    now = _now_ts()
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "job_id": job_id,
+            "mode": mode,
+            "status": "queued",
+            "source_path": source_path,
+            "book_title": str(book_title or "").strip() or None,
+            "source_language": source_language,
+            "target_language": target_language,
+            "error": None,
+            "result": None,
+            "created_at": now,
+            "updated_at": now,
+            "started_at": None,
+            "finished_at": None,
+        }
+        _prune_finished_jobs_unlocked()
+    return job_id
+
+
+def _update_job(job_id: str, **updates) -> None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = _now_ts()
+
+
+def _get_job_snapshot(job_id: str) -> dict | None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return None
+        return dict(job)
+
+
+def _run_pipeline_job(
+    *,
+    job_id: str,
+    mode: str,
+    source_path: str,
+    book_title: str | None,
+    openai_api_key: str,
+    skip_transcription: bool = False,
+    source_language: str = "sr",
+    target_language: str = "en",
+) -> None:
+    _update_job(job_id, status="running", started_at=_now_ts(), error=None)
+
+    try:
+        if mode == "preview":
+            result = run_preview(
+                source_path,
+                book_title=book_title,
+                openai_api_key=openai_api_key,
+                source_language=source_language,
+                target_language=target_language,
+            )
+        else:
+            result = run_full_book(
+                source_path,
+                book_title=book_title,
+                skip_transcription=skip_transcription,
+                openai_api_key=openai_api_key,
+                source_language=source_language,
+                target_language=target_language,
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        _update_job(
+            job_id,
+            status="error",
+            finished_at=_now_ts(),
+            error=f"{type(exc).__name__}: {exc}",
+            result={
+                "status": "error",
+                "mode": mode,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(limit=5),
+            },
+        )
+        return
+
+    if isinstance(result, dict) and str(result.get("status", "")).lower() == "success":
+        _update_job(
+            job_id,
+            status="success",
+            finished_at=_now_ts(),
+            error=None,
+            result=result,
+        )
+        return
+
+    error_message = (
+        str(result.get("error", "")).strip()
+        if isinstance(result, dict)
+        else "Pipeline completed with an unexpected non-success response."
+    ) or "Pipeline completed with errors."
+    _update_job(
+        job_id,
+        status="error",
+        finished_at=_now_ts(),
+        error=error_message,
+        result=result if isinstance(result, dict) else {"status": "error", "error": error_message},
+    )
 
 
 def _is_within_allowed_media_roots(candidate_path: Path) -> bool:
@@ -85,15 +230,25 @@ def _friendly_elevenlabs_http_error(response: requests.Response) -> str:
     return f"ElevenLabs request failed ({status_code}): {api_message or raw_text}"
 
 
-@app.get("/")
-@require_auth
+@web.get("/")
 def index():
     if _frontend_index_exists():
         return send_from_directory(FRONTEND_DIST_DIR, "index.html")
     return render_template("index.html")
 
 
-@app.post("/api/upload")
+@web.get("/api/languages")
+def languages():
+    return jsonify(
+        {
+            "status": "success",
+            "automatic_source_detection": True,
+            "languages": language_catalog(),
+        }
+    )
+
+
+@web.post("/api/upload")
 @require_auth
 def upload():
     if "file" not in request.files:
@@ -127,7 +282,7 @@ def upload():
     )
 
 
-@app.post("/api/preview")
+@web.post("/api/preview")
 @require_auth
 def preview():
     payload = request.get_json(silent=True) or {}
@@ -138,11 +293,51 @@ def preview():
     openai_api_key = str(payload.get("openai_api_key", "")).strip()
     if not openai_api_key:
         return jsonify({"status": "error", "error": "openai_api_key is required."}), 400
-    result = run_preview(source_path, book_title=book_title, openai_api_key=openai_api_key)
-    return jsonify(result)
+    source_path = str(source_path).strip()
+
+    try:
+        source_language = normalize_language_code(payload.get("source_language", "sr"), allow_auto=True)
+        target_language = normalize_language_code(payload.get("target_language", "en"))
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+
+    job_id = _create_job(
+        mode="preview",
+        source_path=source_path,
+        book_title=book_title,
+        source_language=source_language,
+        target_language=target_language,
+    )
+    worker = threading.Thread(
+        target=_run_pipeline_job,
+        kwargs={
+            "job_id": job_id,
+            "mode": "preview",
+            "source_path": source_path,
+            "book_title": book_title,
+            "openai_api_key": openai_api_key,
+            "skip_transcription": False,
+            "source_language": source_language,
+            "target_language": target_language,
+        },
+        daemon=True,
+        name=f"pipeline-preview-{job_id[:8]}",
+    )
+    worker.start()
+    return (
+        jsonify(
+            {
+                "status": "queued",
+                "mode": "preview",
+                "job_id": job_id,
+                "message": "Preview job started in background.",
+            }
+        ),
+        202,
+    )
 
 
-@app.post("/api/full")
+@web.post("/api/full")
 @require_auth
 def full_book():
     payload = request.get_json(silent=True) or {}
@@ -154,16 +349,60 @@ def full_book():
     openai_api_key = str(payload.get("openai_api_key", "")).strip()
     if not openai_api_key:
         return jsonify({"status": "error", "error": "openai_api_key is required."}), 400
-    result = run_full_book(
-        source_path,
+    source_path = str(source_path).strip()
+
+    try:
+        source_language = normalize_language_code(payload.get("source_language", "sr"), allow_auto=True)
+        target_language = normalize_language_code(payload.get("target_language", "en"))
+    except ValueError as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 400
+
+    job_id = _create_job(
+        mode="full",
+        source_path=source_path,
         book_title=book_title,
-        skip_transcription=skip_transcription,
-        openai_api_key=openai_api_key,
+        source_language=source_language,
+        target_language=target_language,
     )
-    return jsonify(result)
+    worker = threading.Thread(
+        target=_run_pipeline_job,
+        kwargs={
+            "job_id": job_id,
+            "mode": "full",
+            "source_path": source_path,
+            "book_title": book_title,
+            "openai_api_key": openai_api_key,
+            "skip_transcription": skip_transcription,
+            "source_language": source_language,
+            "target_language": target_language,
+        },
+        daemon=True,
+        name=f"pipeline-full-{job_id[:8]}",
+    )
+    worker.start()
+    return (
+        jsonify(
+            {
+                "status": "queued",
+                "mode": "full",
+                "job_id": job_id,
+                "message": "Full translation job started in background.",
+            }
+        ),
+        202,
+    )
 
 
-@app.post("/api/save-translated")
+@web.get("/api/jobs/<job_id>")
+@require_auth
+def pipeline_job_status(job_id: str):
+    snapshot = _get_job_snapshot(str(job_id).strip())
+    if not snapshot:
+        return jsonify({"status": "error", "error": "job not found"}), 404
+    return jsonify(snapshot)
+
+
+@web.post("/api/save-translated")
 @require_auth
 def save_translated():
     payload = request.get_json(silent=True) or {}
@@ -195,7 +434,7 @@ def save_translated():
     )
 
 
-@app.post("/api/read")
+@web.post("/api/read")
 @require_auth
 def read_translation():
     payload = request.get_json(silent=True) or {}
@@ -252,7 +491,7 @@ def read_translation():
     )
 
 
-@app.post("/api/elevenlabs/voices")
+@web.post("/api/elevenlabs/voices")
 @require_auth
 def list_elevenlabs_voices():
     payload = request.get_json(silent=True) or {}
@@ -301,12 +540,24 @@ def list_elevenlabs_voices():
     )
 
 
-@app.get("/health")
+@web.get("/health")
 def health():
     return jsonify({"status": "ok"})
 
 
-@app.get("/media/<path:file_path>")
+@web.get("/assets/<path:asset_path>")
+def frontend_bundled_assets(asset_path: str):
+    if not _frontend_index_exists():
+        return jsonify({"status": "error", "error": "Frontend build not found. Run npm run build."}), 404
+
+    asset_root = FRONTEND_DIST_DIR / "assets"
+    candidate = (asset_root / asset_path).resolve()
+    if candidate.exists() and candidate.is_file() and asset_root.resolve() in candidate.parents:
+        return send_from_directory(asset_root, asset_path)
+    return jsonify({"status": "error", "error": "Asset not found."}), 404
+
+
+@web.get("/media/<path:file_path>")
 @require_auth
 def media(file_path: str):
     requested = (BASE_DIR / file_path).resolve()
@@ -317,8 +568,7 @@ def media(file_path: str):
     return send_from_directory(requested.parent, requested.name)
 
 
-@app.get("/<path:path>")
-@require_auth
+@web.get("/<path:path>")
 def frontend_assets(path: str):
     if not _frontend_index_exists():
         return jsonify({"status": "error", "error": "Frontend build not found. Run npm run build."}), 404
@@ -327,6 +577,147 @@ def frontend_assets(path: str):
     if candidate.exists() and candidate.is_file():
         return send_from_directory(FRONTEND_DIST_DIR, path)
     return send_from_directory(FRONTEND_DIST_DIR, "index.html")
+
+
+def create_app(test_config: dict | None = None) -> Flask:
+    """Create the Flask application for web, worker, and test processes."""
+    created_app = Flask(
+        __name__,
+        instance_path=str(BASE_DIR / "instance"),
+        instance_relative_config=True,
+    )
+    database_url = os.getenv("DATABASE_URL", "sqlite:///audiobook_saas.db").strip()
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql+psycopg://" + database_url[len("postgres://") :]
+    elif database_url.startswith("postgresql://"):
+        database_url = "postgresql+psycopg://" + database_url[len("postgresql://") :]
+
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
+    created_app.config.from_mapping(
+        SECRET_KEY="development-only-secret",
+        MAX_CONTENT_LENGTH=2 * 1024 * 1024 * 1024,
+        JSON_SORT_KEYS=False,
+        ENV=app_env,
+        SQLALCHEMY_DATABASE_URI=database_url,
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        # Migrations are authoritative. Tests may opt into create_all for isolated DBs.
+        AUTO_CREATE_DB=False,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=app_env == "production",
+        PERMANENT_SESSION_LIFETIME=30 * 24 * 60 * 60,
+        STORAGE_BACKEND=os.getenv("STORAGE_BACKEND", "local"),
+        STORAGE_LOCAL_ROOT=os.getenv("STORAGE_LOCAL_ROOT", "instance/storage"),
+        S3_ENDPOINT_URL=os.getenv("S3_ENDPOINT_URL", ""),
+        S3_REGION=os.getenv("S3_REGION", "auto"),
+        S3_BUCKET=os.getenv("S3_BUCKET", ""),
+        S3_ACCESS_KEY_ID=os.getenv("S3_ACCESS_KEY_ID", ""),
+        S3_SECRET_ACCESS_KEY=os.getenv("S3_SECRET_ACCESS_KEY", ""),
+        JOB_EXECUTION_MODE=os.getenv("JOB_EXECUTION_MODE", "thread"),
+        REDIS_URL=os.getenv("REDIS_URL", ""),
+        ALLOW_BASIC_AUTH=os.getenv("ALLOW_BASIC_AUTH", "true").strip().lower() in {"1", "true", "yes"},
+        RATELIMIT_STORAGE_URI=(
+            os.getenv("RATELIMIT_STORAGE_URI", "").strip()
+            or os.getenv("REDIS_URL", "").strip()
+            or "memory://"
+        ),
+        RATELIMIT_HEADERS_ENABLED=True,
+        BASE_URL=os.getenv("APP_BASE_URL", "http://127.0.0.1:8080"),
+        FREE_CREDITS=int(os.getenv("FREE_CREDITS", "15")),
+        LEMONSQUEEZY_API_KEY=os.getenv("LEMONSQUEEZY_API_KEY", ""),
+        LEMONSQUEEZY_STORE_ID=os.getenv("LEMONSQUEEZY_STORE_ID", ""),
+        LEMONSQUEEZY_WEBHOOK_SECRET=os.getenv("LEMONSQUEEZY_WEBHOOK_SECRET", ""),
+        LEMONSQUEEZY_CREATOR_VARIANT_ID=os.getenv("LEMONSQUEEZY_CREATOR_VARIANT_ID", ""),
+        LEMONSQUEEZY_STUDIO_VARIANT_ID=os.getenv("LEMONSQUEEZY_STUDIO_VARIANT_ID", ""),
+    )
+    created_app.config.from_prefixed_env(prefix="APP")
+    if test_config:
+        created_app.config.update(test_config)
+    if created_app.config.get("TESTING"):
+        created_app.config["RATELIMIT_ENABLED"] = False
+
+    Path(created_app.instance_path).mkdir(parents=True, exist_ok=True)
+    init_extensions(created_app)
+    created_app.register_blueprint(web)
+    created_app.register_blueprint(auth_api)
+    created_app.register_blueprint(billing_api)
+    created_app.register_blueprint(projects_api)
+
+    @created_app.after_request
+    def add_security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), geolocation=(), microphone=(), payment=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "connect-src 'self'; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "frame-ancestors 'none'; "
+            "img-src 'self' data:; "
+            "object-src 'none'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        )
+        if request.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        if str(created_app.config.get("ENV", "development")).lower() == "production":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
+    _validate_production_config(created_app)
+    return created_app
+
+
+def _validate_production_config(created_app: Flask) -> None:
+    """Reject unsafe default secrets when the service runs in production."""
+    app_env = str(created_app.config.get("ENV", "development")).strip().lower()
+    if app_env != "production" or created_app.config.get("TESTING"):
+        return
+
+    secret_key = str(created_app.config.get("SECRET_KEY", "")).strip()
+    failures: list[str] = []
+    if len(secret_key) < 32 or secret_key == "development-only-secret":
+        failures.append("APP_SECRET_KEY must contain at least 32 characters")
+    if str(created_app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+        failures.append("DATABASE_URL must use PostgreSQL")
+    if str(created_app.config.get("JOB_EXECUTION_MODE", "")).lower() != "rq":
+        failures.append("JOB_EXECUTION_MODE must be rq")
+    if not str(created_app.config.get("REDIS_URL", "")).strip():
+        failures.append("REDIS_URL is required")
+    if str(created_app.config.get("STORAGE_BACKEND", "")).lower() != "s3":
+        failures.append("STORAGE_BACKEND must be s3")
+    for config_key in ("S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+        if not str(created_app.config.get(config_key, "")).strip():
+            failures.append(f"{config_key} is required")
+    if not str(created_app.config.get("BASE_URL", "")).startswith("https://"):
+        failures.append("APP_BASE_URL must be an https:// URL")
+    if created_app.config.get("ALLOW_BASIC_AUTH", False):
+        failures.append("ALLOW_BASIC_AUTH must be false")
+    if not os.getenv("OPENAI_API_KEY", "").strip():
+        failures.append("OPENAI_API_KEY is required")
+    for config_key in (
+        "LEMONSQUEEZY_API_KEY",
+        "LEMONSQUEEZY_STORE_ID",
+        "LEMONSQUEEZY_WEBHOOK_SECRET",
+        "LEMONSQUEEZY_CREATOR_VARIANT_ID",
+        "LEMONSQUEEZY_STUDIO_VARIANT_ID",
+    ):
+        if not str(created_app.config.get(config_key, "")).strip():
+            failures.append(f"{config_key} is required")
+    if failures:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(failures) + ".")
+
+
+app = create_app()
 
 
 if __name__ == "__main__":

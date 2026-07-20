@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a focused improvement to the product or platform.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Who has this problem, and what are they trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed experience
+      description: Describe the smallest useful outcome rather than only an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Areas this may affect
+      options:
+        - label: Database schema or migrations
+        - label: Provider cost or rate limits
+        - label: Billing or credit metering
+        - label: Security or privacy
+        - label: Content rights or voice consent
+        - label: Public API compatibility

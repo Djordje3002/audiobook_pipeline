@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible product or developer experience problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Never attach credentials, customer recordings, transcripts, or private billing data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start from...
+        2. Submit...
+        3. Observe...
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected area
+      options:
+        - Public React site
+        - Account or session
+        - Project or upload
+        - Pipeline worker
+        - Translation quality
+        - Billing or credits
+        - Deployment or documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Revision or environment
+      description: Commit SHA, branch, local environment, or deployment name.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove keys, tokens, personal data, customer media, and transcript content.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets, personal data, customer content, and private billing details.
+          required: true

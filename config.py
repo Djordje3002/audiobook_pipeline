@@ -14,9 +14,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
-# Models
-OPENAI_MODEL = "gpt-4o"
-WHISPER_MODEL = "whisper-1"
+# Models. Whisper remains the default because the editing pipeline relies on its
+# segment timestamps. Newer transcription models can be selected after validating
+# their response shape for the configured workflow.
+OPENAI_MODEL = os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-5.6-terra")
+OPENAI_REASONING_EFFORT = os.getenv("OPENAI_TRANSLATION_REASONING_EFFORT", "low")
+WHISPER_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1")
 ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
 
 # Book metadata (adjust per project)

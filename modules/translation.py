@@ -1,4 +1,4 @@
-"""GPT-4o literary translation and glossary extraction."""
+"""Literary translation through the OpenAI Responses API and glossary extraction."""
 
 from __future__ import annotations
 
@@ -16,11 +16,13 @@ from config import (
     AUTHOR_STYLE,
     BOOK_GENRE,
     OPENAI_MODEL,
+    OPENAI_REASONING_EFFORT,
     OPENAI_RETRY_COUNT,
     OUTPUT_TRANSLATED_DIR,
     REQUEST_DELAY_SEC,
     OPENAI_API_KEY,
 )
+from modules.languages import language_name, normalize_language_code
 from utils.validators import validate_translation
 
 NAME_RE = re.compile(r"\b[A-ZČĆŽŠĐ][a-zčćžšđ]{2,}\b")
@@ -74,14 +76,22 @@ def save_glossary(glossary: dict, book_title: str) -> str:
     return str(glossary_path)
 
 
-def build_system_prompt(glossary: dict) -> str:
+def build_system_prompt(
+    glossary: dict,
+    source_language: str = "sr",
+    target_language: str = "en",
+) -> str:
     """Construct the literary translation system prompt."""
+    source_code = normalize_language_code(source_language, allow_auto=True)
+    target_code = normalize_language_code(target_language)
+    source_name = language_name(source_code)
+    target_name = language_name(target_code)
     names = ", ".join(glossary.get("names", [])[:40]) or "None detected"
     phrases = ", ".join(glossary.get("phrases", [])[:25]) or "None detected"
     style_notes = "\n".join(f"- {note}" for note in glossary.get("style_notes", []))
 
     return (
-        "You are a professional literary translator specializing in Serbian to English translation.\n\n"
+        f"You are a professional literary translator working from {source_name} to {target_name}.\n\n"
         f"GENRE: {BOOK_GENRE}\n"
         f"AUTHOR STYLE: {AUTHOR_STYLE}\n\n"
         "GLOSSARY:\n"
@@ -90,7 +100,7 @@ def build_system_prompt(glossary: dict) -> str:
         f"Style notes:\n{style_notes}\n\n"
         "RULES:\n"
         "1. Preserve narrative rhythm, tone, and emotional intensity.\n"
-        "2. Use idiomatic English equivalents for slang and expressions.\n"
+        f"2. Use idiomatic {target_name} equivalents for slang and expressions.\n"
         "3. Do not output commentary, labels, or explanations.\n"
         "4. Keep names and recurring terminology consistent.\n"
         "5. Return only translated prose suitable for voice synthesis."
@@ -101,21 +111,36 @@ def translate_segment(
     client: OpenAI,
     segment: dict,
     glossary: dict,
+    source_language: str = "sr",
+    target_language: str = "en",
+    safety_identifier: str | None = None,
     retry_count: int = OPENAI_RETRY_COUNT,
 ) -> dict:
     """Translate one segment with retries and structured result fields."""
     for attempt in range(retry_count):
         try:
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": build_system_prompt(glossary)},
-                    {"role": "user", "content": f"Translate this segment:\n\n{segment['original_text']}"},
-                ],
-                temperature=0.3,
-                max_tokens=2000,
-            )
-            translated_text = (response.choices[0].message.content or "").strip()
+            request_options = {
+                "model": OPENAI_MODEL,
+                "instructions": build_system_prompt(
+                    glossary,
+                    source_language=source_language,
+                    target_language=target_language,
+                ),
+                "input": (
+                    f"Translate the following prose into {language_name(target_language)}. "
+                    "Return only the translated prose.\n\n"
+                    f"{segment['original_text']}"
+                ),
+                "max_output_tokens": 2000,
+                "reasoning": {"effort": OPENAI_REASONING_EFFORT},
+                "text": {"verbosity": "low"},
+                "store": False,
+            }
+            if safety_identifier:
+                request_options["safety_identifier"] = safety_identifier
+
+            response = client.responses.create(**request_options)
+            translated_text = str(response.output_text or "").strip()
             usage = getattr(response, "usage", None)
             total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
 
@@ -125,7 +150,12 @@ def translate_segment(
                 "tokens_used": total_tokens,
                 "translation_status": "success",
             }
-            result["validation_warnings"] = validate_translation(result, glossary=glossary)
+            result["validation_warnings"] = validate_translation(
+                result,
+                glossary=glossary,
+                source_language=source_language,
+                target_language=target_language,
+            )
             return result
         except Exception as exc:  # pylint: disable=broad-except
             print(f"  Translation attempt {attempt + 1}/{retry_count} failed: {exc}")
@@ -165,6 +195,9 @@ def translate_all_segments(
     book_title: str,
     glossary: dict | None = None,
     openai_api_key: str | None = None,
+    source_language: str = "sr",
+    target_language: str = "en",
+    safety_identifier: str | None = None,
 ) -> list[dict]:
     """Translate segments with resume support and incremental persistence."""
     client = _get_client(api_key=openai_api_key)
@@ -189,7 +222,14 @@ def translate_all_segments(
         if segment_index in done_indices:
             continue
 
-        translated_segment = translate_segment(client=client, segment=segment, glossary=active_glossary)
+        translated_segment = translate_segment(
+            client=client,
+            segment=segment,
+            glossary=active_glossary,
+            source_language=source_language,
+            target_language=target_language,
+            safety_identifier=safety_identifier,
+        )
         by_index[segment_index] = translated_segment
         _write_translations(output_path, by_index)
         time.sleep(REQUEST_DELAY_SEC)
