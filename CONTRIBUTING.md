@@ -35,7 +35,7 @@ Inspect generated migrations before committing them.
 Run all checks relevant to your change:
 
 ```bash
-pytest -q
+python -m pytest -q
 npm run build --prefix frontend
 npm audit --prefix frontend
 pip check

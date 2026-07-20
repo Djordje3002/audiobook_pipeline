@@ -199,7 +199,7 @@ cost, gross margin, quality, and willingness to pay before a public launch.
 ## Test and build
 
 ```bash
-pytest -q
+python -m pytest -q
 npm run build --prefix frontend
 npm audit --prefix frontend
 pip check
